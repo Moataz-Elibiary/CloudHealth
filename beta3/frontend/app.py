@@ -11,6 +11,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 import uvicorn
 import dataclasses
+import yaml
 
 BASE_PATH = Path(__file__).resolve().parent
 ROOT_DIR = BASE_PATH.parent
@@ -25,7 +26,7 @@ from tunnel_manager import TunnelManager, sftp_push_backend
 from ws_proxy import WSProxy
 from report_generator import ReportGenerator
 
-app = FastAPI(title="CloudHealth Beta 3 - Orchestrator")
+app = FastAPI(title="CloudHealth Beta")
 app.mount("/static", StaticFiles(directory=str(BASE_PATH / "static")), name="static")
 templates = Jinja2Templates(directory=str(BASE_PATH / "static"))
 
@@ -35,6 +36,80 @@ proxy = WSProxy()
 RUN_LOCK = asyncio.Lock()
 LAST_RESULTS = []
 LATEST_REPORT_PATH = None
+
+CHECK_CATEGORIES = {
+    "OCP Checks (27)": [
+        {"id": "version",       "label": "OCP Version & API"},
+        {"id": "operators",     "label": "Cluster Operators"},
+        {"id": "nodes",         "label": "Node Status"},
+        {"id": "pressure",      "label": "Resource Pressure"},
+        {"id": "etcd",          "label": "etcd Health"},
+        {"id": "controlplane",  "label": "Control Plane Pods"},
+        {"id": "ceph",          "label": "Storage (Ceph/ODF)"},
+        {"id": "pvcs",          "label": "PVC / PV Status"},
+        {"id": "storageclasses","label": "Storage Classes"},
+        {"id": "pods",          "label": "Pods & Restarts Audit"},
+        {"id": "deployments",   "label": "Deployments & StatefulSets"},
+        {"id": "daemonsets",    "label": "DaemonSets"},
+        {"id": "jobs",          "label": "Failed Jobs & CronJobs"},
+        {"id": "hpa",           "label": "HPA Capacity"},
+        {"id": "network",       "label": "Network / CNI / DNS"},
+        {"id": "ingress",       "label": "Ingress & Routes"},
+        {"id": "events",        "label": "Events Warning Scan"},
+        {"id": "certs",         "label": "Certificate Expiry"},
+        {"id": "mcp",           "label": "MachineConfigPools"},
+        {"id": "nodeupgrade",   "label": "Node OS & Upgrade"},
+        {"id": "quotas",        "label": "Resource Quotas"},
+        {"id": "rbac",          "label": "RBAC / SCC Audit"},
+        {"id": "alerts",        "label": "Prometheus Alerts"},
+        {"id": "logging",       "label": "Cluster Logging"},
+        {"id": "registry",      "label": "Image Registry"},
+        {"id": "etcdbackup",    "label": "ETCD Backup Freshness"},
+        {"id": "clusternetwork","label": "Cluster Network Policy"},
+    ],
+    "CVIM Checks (19)": [
+        {"id": "hypervisors",  "label": "Hypervisor Status"},
+        {"id": "cvim_network", "label": "Network Agents"},
+        {"id": "volumes",      "label": "Volume Services (Cinder/Ceph)"},
+        {"id": "compute_svc",  "label": "Compute Services (Nova)"},
+        {"id": "identity",     "label": "Identity Services (Keystone)"},
+        {"id": "image_svc",    "label": "Image Service (Glance)"},
+        {"id": "cloudpulse",   "label": "Cloudpulse Health"},
+        {"id": "vms",          "label": "VM (Nova) Status"},
+        {"id": "vm_errors",    "label": "VM Error Audit"},
+        {"id": "rabbitmq",     "label": "RabbitMQ Health"},
+        {"id": "mariadb",      "label": "MariaDB / Galera Cluster"},
+        {"id": "memcached",    "label": "Memcached Status"},
+        {"id": "containers",   "label": "Container Status on Nodes"},
+        {"id": "cvim_ceph",    "label": "Ceph Storage Status"},
+        {"id": "ceph_pools",   "label": "Ceph Pool Health"},
+        {"id": "ovs",          "label": "OVS / Networking Status"},
+        {"id": "haproxy",      "label": "HAProxy / VIP Status"},
+        {"id": "nfs",          "label": "NFS / External Storage"},
+        {"id": "installer",    "label": "CVIM Installer Status"},
+    ],
+    "Host Checks (19)": [
+        {"id": "uptime",       "label": "Uptime & Load Average"},
+        {"id": "os_info",      "label": "OS & Kernel Info"},
+        {"id": "cpu",          "label": "CPU Info & Throttling"},
+        {"id": "memory",       "label": "Memory (RAM + Swap + OOM)"},
+        {"id": "disk",         "label": "Disk Usage & SMART"},
+        {"id": "ecc",          "label": "ECC Memory Errors"},
+        {"id": "host_network", "label": "Network Interfaces"},
+        {"id": "bond",         "label": "Bond Status"},
+        {"id": "sriov",        "label": "SR-IOV"},
+        {"id": "kernel_msgs",  "label": "Kernel Messages (dmesg)"},
+        {"id": "services",     "label": "Systemd Services"},
+        {"id": "ntp",          "label": "NTP Time Sync"},
+        {"id": "pcie",         "label": "PCIe / AER Errors"},
+        {"id": "firmware",     "label": "Firmware Versions"},
+        {"id": "numa",         "label": "NUMA Topology"},
+        {"id": "hugepages",    "label": "Hugepages"},
+        {"id": "selinux",      "label": "SELinux Status"},
+        {"id": "firewall",     "label": "Firewall Rules"},
+        {"id": "ports",        "label": "Open Ports"},
+    ],
+}
 
 
 async def _safe_send_json(websocket: WebSocket, payload: dict):
@@ -55,12 +130,41 @@ def _resolve_local_key_path(key_path: str | None) -> str | None:
 
 @app.get("/")
 async def get_index(request: Request):
-    return templates.TemplateResponse("index.html", {"request": request})
+    return templates.TemplateResponse(request=request, name="index.html")
 
 
 @app.get("/api/results")
 async def api_results():
     return {"results": LAST_RESULTS, "latest_report": LATEST_REPORT_PATH}
+
+
+@app.get("/api/config")
+async def get_config():
+    config_path = ROOT_DIR / "config.yaml"
+    if not config_path.exists():
+        return {}
+    try:
+        with open(config_path, 'r') as f:
+            return yaml.safe_load(f) or {}
+    except Exception as e:
+        return {"error": str(e)}
+
+
+@app.post("/api/config")
+async def update_config(request: Request):
+    try:
+        new_config = await request.json()
+        config_path = ROOT_DIR / "config.yaml"
+        with open(config_path, 'w') as f:
+            yaml.dump(new_config, f, default_flow_style=False, sort_keys=False)
+        return {"status": "success"}
+    except Exception as e:
+        return {"error": str(e)}
+
+
+@app.get("/api/checks")
+async def get_checks():
+    return CHECK_CATEGORIES
 
 
 @app.get("/report/latest", response_class=HTMLResponse)
@@ -84,13 +188,13 @@ async def ui_websocket_endpoint(websocket: WebSocket):
                         {"type": "error", "message": "A diagnostics run is already active for this session."},
                     )
                     continue
-                active_run = asyncio.create_task(_run_all_clusters_guarded(websocket))
+                active_run = asyncio.create_task(_run_all_clusters_guarded(websocket, message.get("enabled_checks")))
     except WebSocketDisconnect:
         if active_run and not active_run.done():
             active_run.cancel()
         pass
 
-async def _run_all_clusters_guarded(ui_ws: WebSocket):
+async def _run_all_clusters_guarded(ui_ws: WebSocket, enabled_checks: list | None = None):
     if RUN_LOCK.locked():
         await _safe_send_json(
             ui_ws,
@@ -101,7 +205,7 @@ async def _run_all_clusters_guarded(ui_ws: WebSocket):
     async with RUN_LOCK:
         await _safe_send_json(ui_ws, {"type": "run_state", "state": "started"})
         try:
-            await run_all_clusters(ui_ws)
+            await run_all_clusters(ui_ws, enabled_checks)
         except asyncio.CancelledError:
             raise
         except Exception as exc:
@@ -110,13 +214,16 @@ async def _run_all_clusters_guarded(ui_ws: WebSocket):
             await _safe_send_json(ui_ws, {"type": "run_state", "state": "finished"})
 
 
-async def run_all_clusters(ui_ws: WebSocket):
+async def run_all_clusters(ui_ws: WebSocket, enabled_checks: list | None = None):
     global LAST_RESULTS, LATEST_REPORT_PATH
     LAST_RESULTS = []
     LATEST_REPORT_PATH = None
     config_path = ROOT_DIR / "config.yaml"
     loader = ConfigLoader(str(config_path))
     app_settings = loader.get_app_settings()
+    if enabled_checks is not None:
+        app_settings.enabled_checks = set(enabled_checks)
+        
     inventory_name = app_settings.inventory_file or "inventory.xlsx"
 
     try:
@@ -260,4 +367,4 @@ async def run_single_cluster(ui_ws: WebSocket, cluster, app_settings, reporter: 
 if __name__ == "__main__":
     # Auto-open dashboard
     threading.Timer(1.5, lambda: webbrowser.open("http://127.0.0.1:8080")).start()
-    uvicorn.run(app, host="127.0.0.1", port=8080, log_level="error")
+    uvicorn.run(app, host="127.0.0.1", port=8080, log_level="info")

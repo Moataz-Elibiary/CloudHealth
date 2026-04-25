@@ -1,8 +1,7 @@
 parallel_limit: 10
 max_parallel_nodes: 10
-input_dir: .
-output_dir: ./outputs
-inventory_file: inventory.xlsx
+output_dir: ./outputs/
+inventory_file: ./inventory.xlsx
 ssh_timeout: 10
 cmd_timeout: 60
 thresholds:
@@ -12,3 +11,4 @@ thresholds:
   load_warn: 2
   load_fail: 5
   swap_warn: 30
+last_enabled_checks: []

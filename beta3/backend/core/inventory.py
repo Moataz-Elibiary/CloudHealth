@@ -150,7 +150,6 @@ class AppSettings:
     backend_port: int = 8100
     heartbeat_timeout: int = 60
     output_dir: str = "./outputs"
-    input_dir: str = "./inputs"
     inventory_file: str = "inventory.xlsx"
     ssh_timeout: int = 30
     cmd_timeout: int = 60
@@ -173,7 +172,6 @@ class AppSettings:
             backend_port=data.get('backend_port', 8100),
             heartbeat_timeout=data.get('heartbeat_timeout', 60),
             output_dir=data.get('output_dir', './outputs'),
-            input_dir=data.get('input_dir', './inputs'),
             inventory_file=data.get('inventory_file', 'inventory.xlsx'),
             ssh_timeout=data.get('ssh_timeout', 30),
             cmd_timeout=data.get('cmd_timeout', 60),
@@ -197,10 +195,6 @@ class InventoryLoader:
         self.config_path = str(Path(config_path).resolve())
         self.config_dir = Path(self.config_path).parent
         self.raw_config = self._load_yaml(self.config_path)
-        configured_input_dir = Path(self.raw_config.get('input_dir', './inputs'))
-        if not configured_input_dir.is_absolute():
-            configured_input_dir = self.config_dir / configured_input_dir
-        self.input_dir = str(configured_input_dir)
 
     def _load_yaml(self, path: str) -> Dict:
         if not os.path.exists(path):
@@ -222,7 +216,6 @@ class InventoryLoader:
             backend_port       = cfg.get('backend_port', 8100),
             heartbeat_timeout  = cfg.get('heartbeat_timeout', 60),
             output_dir         = cfg.get('output_dir', './outputs'),
-            input_dir          = self.input_dir,
             inventory_file     = cfg.get('inventory_file', 'inventory.xlsx'),
             ssh_timeout        = cfg.get('ssh_timeout', parallelism.get('ssh_timeout', 30)),
             cmd_timeout        = cfg.get('cmd_timeout', parallelism.get('cmd_timeout', 60)),
@@ -250,11 +243,11 @@ class InventoryLoader:
         }
 
     def load_inventory(self, excel_filename: str) -> List[ClusterConfig]:
-        # Try both absolute path and relative to input_dir
-        if os.path.isabs(excel_filename) and os.path.exists(excel_filename):
+        # Try both absolute path and relative to config_dir
+        if os.path.isabs(excel_filename):
             excel_path = excel_filename
         else:
-            excel_path = os.path.join(self.input_dir, excel_filename)
+            excel_path = str(self.config_dir / excel_filename)
         if not os.path.exists(excel_path):
             raise FileNotFoundError(f"Inventory file not found: {excel_path}")
 

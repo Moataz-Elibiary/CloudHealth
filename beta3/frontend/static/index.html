@@ -1,209 +1,1050 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>CloudHealth Beta 3 - Dashboard</title>
+    <title>CloudHealth — Beta</title>
+    <meta name="description" content="CloudHealth — Cloud Health Check Tool Dashboard">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
     <style>
         :root {
             --primary: #6366f1;
-            --bg: #0f172a;
-            --card-bg: rgba(30, 41, 59, 0.7);
-            --border: rgba(255, 255, 255, 0.1);
+            --primary-hover: #4f46e5;
+            --bg-gradient-start: #0f172a;
+            --bg-gradient-end: #1e1b4b;
+            --glass-bg: rgba(30, 41, 59, 0.4);
+            --glass-border: rgba(255, 255, 255, 0.1);
+            --glass-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.37);
             --text-main: #f8fafc;
             --text-dim: #94a3b8;
             --success: #10b981;
             --fail: #ef4444;
             --warn: #f59e0b;
             --error: #fb7185;
+            --border-radius: 16px;
         }
 
         body {
-            background: var(--bg);
+            background: linear-gradient(135deg, var(--bg-gradient-start) 0%, var(--bg-gradient-end) 100%);
+            background-attachment: fixed;
             color: var(--text-main);
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            font-family: 'Inter', sans-serif;
             margin: 0;
-            padding: 1rem;
+            padding: 0;
+            display: flex;
+            height: 100vh;
+            overflow: hidden;
+        }
+
+        /* Layout */
+        .sidebar {
+            width: 380px;
+            background: var(--glass-bg);
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+            border-right: 1px solid var(--glass-border);
             display: flex;
             flex-direction: column;
+            overflow-y: auto;
+            padding: 2rem 1.5rem;
+            z-index: 10;
+        }
+
+        .main-content {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            overflow-y: auto;
+            padding: 2rem;
+            position: relative;
+        }
+
+        /* Typography */
+        h1 {
+            font-size: 1.8rem;
+            font-weight: 700;
+            margin: 0 0 0.5rem 0;
+            background: linear-gradient(to right, #818cf8, #c084fc);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+
+        h2 {
+            font-size: 1.2rem;
+            font-weight: 600;
+            margin-bottom: 1rem;
+            color: #e2e8f0;
+        }
+
+        h3 {
+            font-size: 1rem;
+            font-weight: 600;
+            margin-bottom: 0.5rem;
+            color: #cbd5e1;
+        }
+
+        p {
+            margin: 0;
+            color: var(--text-dim);
+            font-size: 0.85rem;
+            line-height: 1.4;
+        }
+
+        /* UI Elements */
+        .glass-panel {
+            background: var(--glass-bg);
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+            border: 1px solid var(--glass-border);
+            border-radius: var(--border-radius);
+            box-shadow: var(--glass-shadow);
+            padding: 1.5rem;
+            margin-bottom: 1.5rem;
+            transition: transform 0.2s ease, box-shadow 0.2s ease;
+        }
+
+        .glass-panel:hover {
+            box-shadow: 0 12px 40px 0 rgba(0, 0, 0, 0.45);
+        }
+
+        /* Forms */
+        .form-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 0.75rem;
+            margin-bottom: 1rem;
+        }
+
+        .form-group.full-width {
+            grid-column: span 2;
+        }
+
+        .form-group label {
+            display: block;
+            font-size: 0.75rem;
+            font-weight: 600;
+            color: var(--text-dim);
+            margin-bottom: 0.2rem;
+        }
+
+        .form-control {
+            width: 100%;
+            background: rgba(15, 23, 42, 0.5);
+            border: 1px solid var(--glass-border);
+            color: var(--text-main);
+            padding: 0.5rem;
+            border-radius: 6px;
+            font-family: 'Inter', sans-serif;
+            font-size: 0.85rem;
+            box-sizing: border-box;
+            transition: border-color 0.2s;
+        }
+
+        .form-control:focus {
+            outline: none;
+            border-color: var(--primary);
+        }
+
+        /* Sidebar Tabs */
+        .sidebar-tabs {
+            display: flex;
+            gap: 0;
+            margin-bottom: 1.5rem;
+            border-bottom: 1px solid var(--glass-border);
+        }
+
+        .sidebar-tab {
+            padding: 0.75rem 1rem;
+            cursor: pointer;
+            font-weight: 600;
+            font-size: 0.9rem;
+            color: var(--text-dim);
+            border-bottom: 2px solid transparent;
+            transition: all 0.3s;
+            user-select: none;
+            flex: 1;
+            text-align: center;
+        }
+
+        .sidebar-tab:hover {
+            color: var(--text-main);
+        }
+
+        .sidebar-tab.active {
+            color: var(--primary);
+            border-bottom-color: var(--primary);
+        }
+
+        .sidebar-tab-content {
+            display: none;
+        }
+
+        .sidebar-tab-content.active {
+            display: block;
+        }
+
+        /* Check Groups */
+        .check-group {
+            margin-bottom: 0.75rem;
+        }
+
+        .check-group-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 0.75rem 1rem;
+            cursor: pointer;
+            border-radius: 8px;
+            background: rgba(15, 23, 42, 0.6);
+            border: 1px solid var(--glass-border);
+            transition: all 0.2s;
+            user-select: none;
+        }
+
+        .check-group-header:hover {
+            background: rgba(15, 23, 42, 0.9);
+        }
+
+        .check-group-title {
+            font-weight: 600;
+            font-size: 0.85rem;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+
+        .counter {
+            font-size: 0.65rem;
+            padding: 0.15rem 0.4rem;
+            border-radius: 9999px;
+            background: rgba(99, 102, 241, 0.2);
+            color: #818cf8;
+            font-weight: 600;
+        }
+
+        .check-group-actions {
+            display: flex;
+            gap: 0.5rem;
             align-items: center;
         }
 
-        .container { width: 100%; max-width: 1100px; }
+        .select-link {
+            font-size: 0.7rem;
+            color: var(--primary);
+            cursor: pointer;
+            font-weight: 600;
+            opacity: 0.7;
+            transition: opacity 0.2s;
+        }
 
-        header { text-align: center; margin-bottom: 2rem; }
-        h1 { font-size: 2.2rem; margin: 0; background: linear-gradient(to right, #818cf8, #c084fc); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
+        .select-link:hover {
+            opacity: 1;
+            text-decoration: underline;
+        }
+
+        .chevron {
+            transition: transform 0.3s;
+            font-size: 0.7rem;
+            color: var(--text-dim);
+            margin-left: 0.2rem;
+        }
+
+        .check-group.open .chevron {
+            transform: rotate(180deg);
+        }
+
+        .check-items {
+            max-height: 0;
+            overflow: hidden;
+            transition: max-height 0.4s ease;
+            padding: 0 1rem;
+            background: rgba(0, 0, 0, 0.2);
+            border-radius: 0 0 8px 8px;
+        }
+
+        .check-group.open .check-items {
+            max-height: 1200px;
+            padding: 0.5rem 1rem;
+            border: 1px solid var(--glass-border);
+            border-top: none;
+        }
+
+        .check-item-ui {
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+            padding: 0.4rem 0;
+            font-size: 0.8rem;
+        }
+
+        .check-item-ui input[type="checkbox"] {
+            appearance: none;
+            width: 16px;
+            height: 16px;
+            flex-shrink: 0;
+            border: 1px solid var(--glass-border);
+            border-radius: 4px;
+            background: rgba(15, 23, 42, 0.5);
+            cursor: pointer;
+            position: relative;
+        }
+
+        .check-item-ui input[type="checkbox"]:checked {
+            background: var(--primary);
+            border-color: var(--primary);
+        }
+
+        .check-item-ui input[type="checkbox"]:checked::after {
+            content: '✔';
+            position: absolute;
+            color: white;
+            font-size: 10px;
+            left: 2px;
+            top: 0px;
+        }
+
+        .check-item-ui label {
+            cursor: pointer;
+            color: var(--text-dim);
+        }
+
+        .check-item-ui input[type="checkbox"]:checked+label {
+            color: var(--text-main);
+        }
+
+        /* Buttons */
+        .btn {
+            background: var(--primary);
+            color: white;
+            border: none;
+            padding: 0.75rem 1.5rem;
+            border-radius: 8px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s ease;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            font-family: 'Inter', sans-serif;
+        }
+
+        .btn:hover:not(:disabled) {
+            background: var(--primary-hover);
+            transform: translateY(-1px);
+            box-shadow: 0 4px 12px rgba(99, 102, 241, 0.4);
+        }
+
+        .btn:active:not(:disabled) {
+            transform: translateY(1px);
+        }
+
+        .btn:disabled {
+            background: #475569;
+            cursor: not-allowed;
+            opacity: 0.7;
+        }
+
+        .btn-outline {
+            background: transparent;
+            border: 1px solid var(--primary);
+            color: var(--text-main);
+        }
+
+        .btn-outline:hover {
+            background: rgba(99, 102, 241, 0.1);
+        }
 
         /* Scoreboard */
         .scoreboard {
             display: flex;
-            justify-content: center;
-            gap: 2rem;
+            gap: 1.5rem;
             margin-bottom: 2rem;
-            background: var(--card-bg);
-            padding: 1rem 2rem;
-            border-radius: 1rem;
-            border: 1px solid var(--border);
         }
-        .score-item { text-align: center; }
-        .score-val { font-size: 1.5rem; font-weight: bold; display: block; }
-        .score-lbl { font-size: 0.7rem; text-transform: uppercase; color: var(--text-dim); letter-spacing: 1px; }
 
-        .cluster-card {
-            background: var(--card-bg);
-            backdrop-filter: blur(10px);
-            border: 1px solid var(--border);
-            border-radius: 1rem;
-            padding: 1.5rem;
+        .score-card {
+            flex: 1;
+            text-align: center;
+            padding: 1rem;
+        }
+
+        .score-val {
+            font-size: 2rem;
+            font-weight: 700;
+            display: block;
+            line-height: 1;
+            margin-bottom: 0.2rem;
+        }
+
+        .score-lbl {
+            font-size: 0.75rem;
+            text-transform: uppercase;
+            color: var(--text-dim);
+            letter-spacing: 1px;
+            font-weight: 600;
+        }
+
+        /* Filter Bar */
+        .filter-bar {
+            display: flex;
+            gap: 0.5rem;
             margin-bottom: 1.5rem;
-            box-shadow: 0 4px 20px rgba(0,0,0,0.3);
+            background: var(--glass-bg);
+            padding: 0.5rem;
+            border-radius: 12px;
+            border: 1px solid var(--glass-border);
         }
 
-        .card-header { display: flex; justify-content: space-between; align-items: center; }
-        .cluster-info h2 { margin: 0; font-size: 1.4rem; color: #fff; }
-        .cluster-info p { margin: 0.2rem 0 0; font-size: 0.9rem; color: var(--text-dim); }
+        .filter-btn {
+            background: transparent;
+            border: none;
+            color: var(--text-dim);
+            padding: 0.5rem 1rem;
+            border-radius: 8px;
+            cursor: pointer;
+            font-weight: 600;
+            font-size: 0.85rem;
+            transition: all 0.2s;
+        }
 
-        .status-pill { padding: 0.2rem 0.8rem; border-radius: 2rem; font-size: 0.75rem; font-weight: bold; text-transform: uppercase; }
-        .status-idle { background: #475569; }
-        .status-running, .status-connecting, .status-pushing-backend { background: var(--primary); animation: glow 1.5s infinite alternate; }
-        .status-pass { background: var(--success); }
-        .status-fail { background: var(--fail); }
-        .status-warn { background: var(--warn); color: #111827; }
-        .status-error { background: var(--error); }
+        .filter-btn.active {
+            background: rgba(255, 255, 255, 0.1);
+            color: var(--text-main);
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+        }
 
-        @keyframes glow { from { box-shadow: 0 0 5px var(--primary); } to { box-shadow: 0 0 15px var(--primary); } }
+        .filter-btn.active[data-filter="pass"] {
+            color: var(--success);
+        }
+
+        .filter-btn.active[data-filter="warn"] {
+            color: var(--warn);
+        }
+
+        .filter-btn.active[data-filter="error"] {
+            color: var(--fail);
+        }
+
+        /* Cluster Cards */
+        .cluster-card {
+            margin-bottom: 1.5rem;
+        }
+
+        .card-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .cluster-info h2 {
+            margin: 0;
+            font-size: 1.25rem;
+            color: #fff;
+        }
+
+        .status-pill {
+            padding: 0.25rem 0.75rem;
+            border-radius: 2rem;
+            font-size: 0.7rem;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .status-idle {
+            background: #475569;
+        }
+
+        .status-running,
+        .status-connecting,
+        .status-pushing-backend {
+            background: var(--primary);
+            animation: pulse-glow 2s infinite;
+        }
+
+        .status-pass {
+            background: var(--success);
+        }
+
+        .status-fail,
+        .status-error {
+            background: var(--fail);
+        }
+
+        .status-warn {
+            background: var(--warn);
+            color: #111827;
+        }
+
+        @keyframes pulse-glow {
+            0% {
+                box-shadow: 0 0 0 0 rgba(99, 102, 241, 0.4);
+            }
+
+            70% {
+                box-shadow: 0 0 0 10px rgba(99, 102, 241, 0);
+            }
+
+            100% {
+                box-shadow: 0 0 0 0 rgba(99, 102, 241, 0);
+            }
+        }
 
         .headline-zone {
-            margin: 1.5rem 0;
+            margin: 1rem 0;
             padding: 0.75rem 1rem;
-            background: rgba(15, 23, 42, 0.5);
-            border-radius: 0.5rem;
+            background: rgba(15, 23, 42, 0.6);
+            border-radius: 8px;
             border-left: 3px solid var(--primary);
-            font-family: monospace;
+            font-family: 'Consolas', 'Monaco', monospace;
             font-size: 0.85rem;
             color: #cbd5e1;
-            min-height: 1.2rem;
             white-space: nowrap;
             overflow: hidden;
             text-overflow: ellipsis;
         }
 
-        .details-area { display: none; margin-top: 1.5rem; border-top: 1px solid var(--border); padding-top: 1.5rem; }
-        .details-area.open { display: block; }
+        /* Check Details */
+        .details-area {
+            display: none;
+            margin-top: 1.5rem;
+            border-top: 1px solid var(--glass-border);
+            padding-top: 1.5rem;
+        }
+
+        .details-area.open {
+            display: block;
+        }
 
         .section-box {
-            background: rgba(255,255,255,0.03);
-            border: 1px solid var(--border);
-            border-radius: 0.5rem;
+            background: rgba(255, 255, 255, 0.02);
+            border: 1px solid var(--glass-border);
+            border-radius: 8px;
             margin-bottom: 1rem;
             overflow: hidden;
+            transition: all 0.3s ease;
         }
 
         .section-header {
             padding: 0.75rem 1rem;
-            background: rgba(255,255,255,0.05);
+            background: rgba(255, 255, 255, 0.04);
             display: flex;
             justify-content: space-between;
+            align-items: center;
             cursor: pointer;
+            font-weight: 600;
         }
 
-        .section-content { padding: 1rem; display: none; }
-        .section-content.open { display: block; }
+        .section-header:hover {
+            background: rgba(255, 255, 255, 0.08);
+        }
 
-        .check-item { display: flex; align-items: flex-start; margin-bottom: 0.75rem; font-size: 0.9rem; }
-        .check-status { margin-right: 0.75rem; font-weight: bold; min-width: 50px; }
-        .text-pass { color: var(--success); }
-        .text-fail { color: var(--fail); }
-        .text-warn { color: var(--warn); }
-
-        .btn-main { background: var(--primary); color: white; border: none; padding: 0.8rem 2rem; border-radius: 0.5rem; font-weight: bold; cursor: pointer; transition: transform 0.1s; }
-        .btn-main:active { transform: scale(0.98); }
-        .btn-main:disabled { background: #334155; cursor: not-allowed; }
-
-        .btn-outline { background: transparent; border: 1px solid var(--primary); color: var(--primary); padding: 0.4rem 1rem; border-radius: 0.4rem; cursor: pointer; font-size: 0.85rem; }
-        .btn-outline:hover { background: var(--primary); color: white; }
-
-        .error-banner {
+        .section-content {
+            padding: 1rem;
             display: none;
-            margin-bottom: 1.5rem;
-            padding: 1rem 1.25rem;
-            background: rgba(239, 68, 68, 0.14);
-            border: 1px solid rgba(239, 68, 68, 0.35);
-            border-radius: 0.75rem;
-            color: #fecaca;
+            border-top: 1px solid var(--glass-border);
         }
 
-        .report-path {
-            display: none;
-            margin-top: 1rem;
-            font-size: 0.8rem;
-            color: var(--text-dim);
-            word-break: break-all;
-        }
-
-        .report-path.open {
+        .section-content.open {
             display: block;
         }
 
-        .report-banner {
+        .check-item {
+            display: flex;
+            align-items: flex-start;
+            margin-bottom: 0.75rem;
+            font-size: 0.85rem;
+            padding: 0.5rem;
+            border-radius: 6px;
+            background: rgba(0, 0, 0, 0.2);
+        }
+
+        .check-item:last-child {
+            margin-bottom: 0;
+        }
+
+        .check-status {
+            margin-right: 0.75rem;
+            font-weight: 700;
+            min-width: 55px;
+        }
+
+        .text-pass {
+            color: var(--success);
+        }
+
+        .text-fail,
+        .text-error {
+            color: var(--fail);
+        }
+
+        .text-warn {
+            color: var(--warn);
+        }
+
+        .text-skip {
+            color: #64748b;
+        }
+
+        /* Banners */
+        .banner {
             display: none;
             margin-bottom: 1.5rem;
-            padding: 1rem 1.25rem;
-            background: rgba(16, 185, 129, 0.12);
-            border: 1px solid rgba(16, 185, 129, 0.28);
-            border-radius: 0.75rem;
+            padding: 1rem;
+            border-radius: 12px;
+            font-size: 0.9rem;
+            line-height: 1.5;
+            animation: slideIn 0.3s ease-out;
+        }
+
+        @keyframes slideIn {
+            from {
+                opacity: 0;
+                transform: translateY(-10px);
+            }
+
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        .banner-error {
+            background: rgba(239, 68, 68, 0.15);
+            border: 1px solid rgba(239, 68, 68, 0.3);
+            color: #fecaca;
+        }
+
+        .banner-success {
+            background: rgba(16, 185, 129, 0.15);
+            border: 1px solid rgba(16, 185, 129, 0.3);
             color: #d1fae5;
             word-break: break-all;
         }
 
-        .report-banner.open {
-            display: block;
+        /* Scrollbar */
+        ::-webkit-scrollbar {
+            width: 8px;
+        }
+
+        ::-webkit-scrollbar-track {
+            background: rgba(0, 0, 0, 0.1);
+        }
+
+        ::-webkit-scrollbar-thumb {
+            background: rgba(255, 255, 255, 0.2);
+            border-radius: 4px;
+        }
+
+        ::-webkit-scrollbar-thumb:hover {
+            background: rgba(255, 255, 255, 0.3);
+        }
+
+        .hidden-by-filter {
+            display: none !important;
         }
     </style>
 </head>
+
 <body>
-    <div class="container">
-        <header>
-            <h1>CloudHealth Beta 3</h1>
-            <p style="color: var(--text-dim); margin-top: 0.5rem;">Distributed Diagnostics & Real-time Orchestration</p>
+
+    <!-- Sidebar -->
+    <div class="sidebar">
+        <header style="margin-bottom: 2.5rem; text-align: left;">
+            <h1 style="font-size: 2.2rem; background: linear-gradient(135deg, #fff, #818cf8, #fff); -webkit-background-clip: text; -webkit-text-fill-color: transparent; letter-spacing: -0.02em; margin-bottom: 0.25rem;">
+                CloudHealth <span style="display: inline-block; padding: 0.2rem 0.6rem; border-radius: 999px; background: rgba(99, 102, 241, 0.15); color: #818cf8; font-size: 0.65rem; font-weight: 700; letter-spacing: 0.05em; vertical-align: middle; margin-left: 0.4rem; border: 1px solid rgba(99, 102, 241, 0.2);">BETA 3</span>
+            </h1>
+            <p style="color: var(--text-dim); font-size: 0.95rem; font-weight: 500; opacity: 0.8;">Cloud Health Check Tool</p>
         </header>
 
+        <div class="sidebar-tabs">
+            <div class="sidebar-tab active" data-target="tab-checks">Test Cases</div>
+            <div class="sidebar-tab" data-target="tab-config">Configuration</div>
+        </div>
+
+        <!-- Tab 1: Checks -->
+        <div id="tab-checks" class="sidebar-tab-content active">
+            <div id="checkGroupsContainer" style="margin-bottom: 1rem;">
+                <!-- Dynamic categories loaded via API -->
+                <div style="text-align: center; color: var(--text-dim); padding: 2rem 0; font-size: 0.85rem;">
+                    Loading test cases...
+                </div>
+            </div>
+
+            <div style="margin-top: auto; padding-top: 1rem;">
+                <button id="runBtn" class="btn" style="width: 100%; font-size: 1.1rem; padding: 1rem;">
+                    🚀 Run Health Check
+                </button>
+            </div>
+        </div>
+
+        <!-- Tab 2: Config -->
+        <div id="tab-config" class="sidebar-tab-content">
+            <div class="glass-panel" style="padding: 1rem; margin-bottom: 1rem;">
+                <div id="configForm">
+                    <div class="form-grid">
+                        <div class="form-group">
+                            <label>Parallel Limit</label>
+                            <input type="number" id="cfg_parallel_limit" class="form-control" placeholder="10">
+                        </div>
+                        <div class="form-group">
+                            <label>Max Nodes</label>
+                            <input type="number" id="cfg_max_parallel_nodes" class="form-control" placeholder="10">
+                        </div>
+                        <div class="form-group">
+                            <label>SSH Timeout</label>
+                            <input type="number" id="cfg_ssh_timeout" class="form-control" placeholder="10">
+                        </div>
+                        <div class="form-group">
+                            <label>CMD Timeout</label>
+                            <input type="number" id="cfg_cmd_timeout" class="form-control" placeholder="60">
+                        </div>
+
+                        <div class="form-group full-width"
+                            style="margin: 0.5rem 0 0.2rem 0; font-size: 0.8rem; font-weight: bold; color: var(--primary);">
+                            Thresholds</div>
+
+                        <div class="form-group">
+                            <label>Disk Warn %</label>
+                            <input type="number" id="cfg_disk_percent" class="form-control" placeholder="85">
+                        </div>
+                        <div class="form-group">
+                            <label>Mem Warn %</label>
+                            <input type="number" id="cfg_mem_warn" class="form-control" placeholder="80">
+                        </div>
+                        <div class="form-group">
+                            <label>Mem Fail %</label>
+                            <input type="number" id="cfg_mem_fail" class="form-control" placeholder="95">
+                        </div>
+                        <div class="form-group">
+                            <label>Swap Warn %</label>
+                            <input type="number" id="cfg_swap_warn" class="form-control" placeholder="30">
+                        </div>
+                        <div class="form-group">
+                            <label>Load Warn (x)</label>
+                            <input type="number" step="0.1" id="cfg_load_warn" class="form-control" placeholder="2.0">
+                        </div>
+                        <div class="form-group">
+                            <label>Load Fail (x)</label>
+                            <input type="number" step="0.1" id="cfg_load_fail" class="form-control" placeholder="5.0">
+                        </div>
+
+                        <div class="form-group full-width"
+                            style="margin: 0.5rem 0 0.2rem 0; font-size: 0.8rem; font-weight: bold; color: var(--primary);">
+                            Paths</div>
+
+                        <div class="form-group full-width">
+                            <label>Output Directory</label>
+                            <input type="text" id="cfg_output_dir" class="form-control" placeholder="./outputs">
+                        </div>
+                        <div class="form-group full-width">
+                            <label>Inventory File</label>
+                            <input type="text" id="cfg_inventory_file" class="form-control"
+                                placeholder="inventory.xlsx">
+                        </div>
+                    </div>
+                    <button id="saveConfigBtn" class="btn btn-outline"
+                        style="width: 100%; padding: 0.5rem; font-size: 0.8rem; margin-top: 0.5rem;">Save
+                        Config</button>
+                    <div id="configMsg"
+                        style="font-size: 0.75rem; color: var(--success); margin-top: 0.5rem; display: none;">Saved
+                        successfully!</div>
+                </div>
+            </div>
+        </div>
+
+        <div style="margin-top: auto; padding-top: 2rem; text-align: center; font-size: 0.75rem; color: var(--text-dim); opacity: 0.4; font-weight: 500;">
+            &copy; 2026 CloudHealth Beta 3
+        </div>
+    </div>
+
+    <!-- Main Content -->
+    <div class="main-content">
+        <!-- Scoreboard -->
         <div class="scoreboard">
-            <div class="score-item">
+            <div class="glass-panel score-card">
                 <span class="score-val" id="totalPass" style="color: var(--success);">0</span>
                 <span class="score-lbl">Passed</span>
             </div>
-            <div class="score-item">
+            <div class="glass-panel score-card">
                 <span class="score-val" id="totalWarn" style="color: var(--warn);">0</span>
                 <span class="score-lbl">Warnings</span>
             </div>
-            <div class="score-item">
+            <div class="glass-panel score-card">
                 <span class="score-val" id="totalFail" style="color: var(--fail);">0</span>
                 <span class="score-lbl">Failures</span>
             </div>
         </div>
 
-        <div id="errorBanner" class="error-banner"></div>
-        <div id="reportBanner" class="report-banner"></div>
+        <div id="errorBanner" class="banner banner-error"></div>
+        <div id="reportBanner" class="banner banner-success"></div>
 
-        <div style="text-align: center; margin-bottom: 2.5rem;">
-            <button id="runBtn" class="btn-main">Launch All Diagnostics</button>
+        <!-- Filter Bar -->
+        <div class="filter-bar">
+            <button class="filter-btn active" data-filter="all">All Results</button>
+            <button class="filter-btn" data-filter="error">Errors Only</button>
+            <button class="filter-btn" data-filter="warn">Warnings</button>
+            <button class="filter-btn" data-filter="pass">Passed</button>
         </div>
 
-        <div id="cards"></div>
+        <!-- Cards Container -->
+        <div id="cards">
+            <div style="text-align: center; color: var(--text-dim); margin-top: 4rem; font-style: italic;">
+                Ready to commence diagnostics. Select test cases and click Run Health Check.
+            </div>
+        </div>
     </div>
 
     <script>
+        // --- WebSockets ---
         const ws = new WebSocket(`ws://${window.location.host}/ws/ui`);
+
+        // --- DOM Elements ---
         const cardsContainer = document.getElementById('cards');
         const runBtn = document.getElementById('runBtn');
         const errorBanner = document.getElementById('errorBanner');
         const reportBanner = document.getElementById('reportBanner');
-        
+
+        // Config Elements
+        const saveConfigBtn = document.getElementById('saveConfigBtn');
+        const configMsg = document.getElementById('configMsg');
+
+        const cfgMap = {
+            parallel_limit: document.getElementById('cfg_parallel_limit'),
+            max_parallel_nodes: document.getElementById('cfg_max_parallel_nodes'),
+            ssh_timeout: document.getElementById('cfg_ssh_timeout'),
+            cmd_timeout: document.getElementById('cfg_cmd_timeout'),
+            output_dir: document.getElementById('cfg_output_dir'),
+            inventory_file: document.getElementById('cfg_inventory_file'),
+        };
+        const thrMap = {
+            disk_percent: document.getElementById('cfg_disk_percent'),
+            mem_warn: document.getElementById('cfg_mem_warn'),
+            mem_fail: document.getElementById('cfg_mem_fail'),
+            swap_warn: document.getElementById('cfg_swap_warn'),
+            load_warn: document.getElementById('cfg_load_warn'),
+            load_fail: document.getElementById('cfg_load_fail')
+        };
+
+        // Filter Elements
+        const filterBtns = document.querySelectorAll('.filter-btn');
+        let currentFilter = 'all'; // all, error, warn, pass
+
+        // State
         let stats = { pass: 0, warn: 0, fail: 0 };
         let clusters = {};
         let isRunning = false;
+        let configData = {};
+        let checkCategories = {};
+        let saveTimeout = null;
 
+        // --- Initialization ---
+        async function init() {
+            await loadConfig();
+            await loadChecks();
+        }
+
+        async function loadConfig() {
+            try {
+                const r = await fetch('/api/config');
+                const data = await r.json();
+                if (data.error) { console.error("Config load error:", data.error); return; }
+                configData = data;
+
+                Object.keys(cfgMap).forEach(k => {
+                    if (data[k] !== undefined && cfgMap[k]) {
+                        cfgMap[k].value = data[k];
+                    }
+                });
+
+                if (data.thresholds) {
+                    Object.keys(thrMap).forEach(k => {
+                        if (data.thresholds[k] !== undefined && thrMap[k]) {
+                            thrMap[k].value = data.thresholds[k];
+                        }
+                    });
+                }
+            } catch (e) { console.error("Config fetch failed:", e); }
+        }
+
+        async function loadChecks() {
+            try {
+                const r = await fetch('/api/checks');
+                checkCategories = await r.json();
+                renderCheckGroups();
+
+                if (configData.last_enabled_checks && configData.last_enabled_checks.length > 0) {
+                    document.querySelectorAll('.check-opt').forEach(c => c.checked = false);
+                    configData.last_enabled_checks.forEach(id => {
+                        const el = document.getElementById('chk_' + id);
+                        if (el) el.checked = true;
+                    });
+                    Object.keys(checkCategories).forEach(groupName => {
+                        const gid = groupName.replace(/[^a-z]/gi, '_');
+                        updateCounter(gid);
+                    });
+                }
+            } catch (e) { console.error("Checks fetch failed:", e); }
+        }
+
+        // --- Sidebar Tabs Logic ---
+        document.querySelectorAll('.sidebar-tab').forEach(tab => {
+            tab.onclick = () => {
+                document.querySelectorAll('.sidebar-tab').forEach(t => t.classList.remove('active'));
+                document.querySelectorAll('.sidebar-tab-content').forEach(c => c.classList.remove('active'));
+                tab.classList.add('active');
+                document.getElementById(tab.getAttribute('data-target')).classList.add('active');
+            };
+        });
+
+        // --- Render Check Groups ---
+        function renderCheckGroups() {
+            const container = document.getElementById('checkGroupsContainer');
+            container.innerHTML = '';
+
+            for (const [groupName, items] of Object.entries(checkCategories)) {
+                const group = document.createElement('div');
+                group.className = 'check-group'; // default collapsed
+                const gid = groupName.replace(/[^a-z]/gi, '_');
+
+                group.innerHTML = `
+                    <div class="check-group-header" onclick="toggleGroup(this)">
+                        <div class="check-group-title">
+                            ${groupName}
+                            <span class="counter" id="cnt_${gid}">${items.length}/${items.length}</span>
+                        </div>
+                        <div class="check-group-actions">
+                            <span class="select-link" onclick="event.stopPropagation();selectAll('${gid}',true)">All</span>
+                            <span class="select-link" onclick="event.stopPropagation();selectAll('${gid}',false)">None</span>
+                            <span class="chevron">▼</span>
+                        </div>
+                    </div>
+                    <div class="check-items" id="items_${gid}">
+                        ${items.map(c => `
+                            <div class="check-item-ui">
+                                <input type="checkbox" id="chk_${c.id}" class="check-opt" value="${c.id}" checked
+                                        onchange="updateCounter('${gid}')">
+                                <label for="chk_${c.id}">${c.label}</label>
+                            </div>
+                        `).join('')}
+                    </div>
+                `;
+                container.appendChild(group);
+            }
+        }
+
+        function toggleGroup(header) {
+            header.parentElement.classList.toggle('open');
+        }
+
+        function selectAll(gid, checked) {
+            document.querySelectorAll(`#items_${gid} .check-opt`).forEach(c => c.checked = checked);
+            updateCounter(gid);
+        }
+
+        function updateCounter(gid) {
+            const all = document.querySelectorAll(`#items_${gid} .check-opt`);
+            const checked = document.querySelectorAll(`#items_${gid} .check-opt:checked`);
+            document.getElementById(`cnt_${gid}`).textContent = `${checked.length}/${all.length}`;
+            if (event && event.type === 'change') {
+                triggerConfigSaveChecks();
+            } else if (event && event.type === 'click') {
+                triggerConfigSaveChecks();
+            }
+        }
+
+        function triggerConfigSaveChecks() {
+            clearTimeout(saveTimeout);
+            saveTimeout = setTimeout(() => {
+                const checked = Array.from(document.querySelectorAll('.check-opt:checked')).map(cb => cb.value);
+                configData.last_enabled_checks = checked;
+
+                fetch('/api/config', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(configData)
+                });
+            }, 600);
+        }
+
+        // Save config parameters
+        saveConfigBtn.onclick = () => {
+            saveConfigBtn.disabled = true;
+            saveConfigBtn.textContent = "Saving...";
+
+            Object.keys(cfgMap).forEach(k => {
+                const el = cfgMap[k];
+                if (el.type === 'number') {
+                    configData[k] = el.step ? parseFloat(el.value) : parseInt(el.value);
+                    if (isNaN(configData[k])) configData[k] = undefined;
+                } else {
+                    configData[k] = el.value;
+                }
+            });
+
+            if (!configData.thresholds) configData.thresholds = {};
+            Object.keys(thrMap).forEach(k => {
+                const el = thrMap[k];
+                if (el.type === 'number') {
+                    configData.thresholds[k] = el.step ? parseFloat(el.value) : parseInt(el.value);
+                    if (isNaN(configData.thresholds[k])) configData.thresholds[k] = undefined;
+                } else {
+                    configData.thresholds[k] = el.value;
+                }
+            });
+
+            fetch('/api/config', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(configData)
+            })
+                .then(r => r.json())
+                .then(data => {
+                    saveConfigBtn.disabled = false;
+                    saveConfigBtn.textContent = "Save Config";
+                    if (data.status === 'success') {
+                        configMsg.style.display = 'block';
+                        setTimeout(() => { configMsg.style.display = 'none'; }, 3000);
+                    }
+                });
+        };
+
+        // Filter Logic
+        filterBtns.forEach(btn => {
+            btn.onclick = (e) => {
+                filterBtns.forEach(b => b.classList.remove('active'));
+                btn.classList.add('active');
+                currentFilter = btn.getAttribute('data-filter');
+                applyFilter();
+            };
+        });
+
+        function applyFilter() {
+            document.querySelectorAll('.check-item').forEach(el => {
+                const status = el.getAttribute('data-status');
+                let show = true;
+                if (currentFilter === 'error' && status !== 'fail' && status !== 'error') show = false;
+                if (currentFilter === 'warn' && status !== 'warn') show = false;
+                if (currentFilter === 'pass' && status !== 'pass') show = false;
+
+                if (show) { el.classList.remove('hidden-by-filter'); }
+                else { el.classList.add('hidden-by-filter'); }
+            });
+
+            document.querySelectorAll('.section-box').forEach(section => {
+                const visibleChecks = section.querySelectorAll('.check-item:not(.hidden-by-filter)').length;
+                if (visibleChecks === 0 && currentFilter !== 'all') {
+                    section.classList.add('hidden-by-filter');
+                } else {
+                    section.classList.remove('hidden-by-filter');
+                }
+            });
+        }
+
+
+        // --- WS Handling ---
         ws.onmessage = (e) => {
             const m = JSON.parse(e.data);
             if (m.type === 'run_state') handleRunState(m);
@@ -220,12 +1061,7 @@
         };
 
         function escapeHtml(value) {
-            return String(value ?? '')
-                .replaceAll('&', '&amp;')
-                .replaceAll('<', '&lt;')
-                .replaceAll('>', '&gt;')
-                .replaceAll('"', '&quot;')
-                .replaceAll("'", '&#39;');
+            return String(value ?? '').replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;').replaceAll('"', '&quot;').replaceAll("'", '&#39;');
         }
 
         function resetDashboard() {
@@ -235,8 +1071,11 @@
             updateScoreboard();
             errorBanner.style.display = 'none';
             errorBanner.textContent = '';
-            reportBanner.classList.remove('open');
+            reportBanner.style.display = 'none';
             reportBanner.textContent = '';
+            filterBtns.forEach(b => b.classList.remove('active'));
+            document.querySelector('.filter-btn[data-filter="all"]').classList.add('active');
+            currentFilter = 'all';
         }
 
         function updateScoreboard() {
@@ -250,13 +1089,14 @@
                 isRunning = true;
                 resetDashboard();
                 runBtn.disabled = true;
-                runBtn.textContent = 'Diagnostics Running...';
+                runBtn.innerHTML = '⚙️ Diagnostics Running...';
                 return;
             }
             if (message.state === 'finished') {
                 isRunning = false;
                 runBtn.disabled = false;
-                runBtn.textContent = 'Launch All Diagnostics';
+                runBtn.innerHTML = '🚀 Run Health Check';
+                applyFilter();
             }
         }
 
@@ -273,7 +1113,7 @@
             errorBanner.textContent = message;
             if (!isRunning) {
                 runBtn.disabled = false;
-                runBtn.textContent = 'Launch All Diagnostics';
+                runBtn.innerHTML = '🚀 Run Health Check';
             }
         }
 
@@ -292,36 +1132,36 @@
         function addResult(name, data) {
             const card = getOrCreateCard(name);
             const container = card.querySelector('.details-area');
-            
+
             const section = document.createElement('div');
             section.className = 'section-box';
-            
+
             const sectionStatus = (data.status || '').toLowerCase();
             if (sectionStatus === 'fail' || sectionStatus === 'error') stats.fail++;
             else if (sectionStatus === 'warn') stats.warn++;
             else stats.pass++;
             updateScoreboard();
 
-            const statusClass =
-                sectionStatus === 'fail' || sectionStatus === 'error' ? 'text-fail' :
-                sectionStatus === 'warn' || sectionStatus === 'skip' ? 'text-warn' :
-                'text-pass';
-            
+            const statusClass = sectionStatus === 'fail' || sectionStatus === 'error' ? 'text-fail' : sectionStatus === 'warn' || sectionStatus === 'skip' ? 'text-warn' : 'text-pass';
+
             section.innerHTML = `
                 <div class="section-header">
-                    <span>${escapeHtml(data.name)}</span>
+                    <span>${escapeHtml(data.name)} <span style="font-size: 0.8rem; color: var(--text-dim); font-weight: normal;">(${escapeHtml(data.category)})</span></span>
                     <span class="${statusClass}">${sectionStatus.toUpperCase()}</span>
                 </div>
                 <div class="section-content">
-                    ${data.checks.map(c => `
-                        <div class="check-item">
-                            <span class="check-status text-${escapeHtml(c.status.toLowerCase())}">[${escapeHtml(c.status)}]</span>
-                            <div>
-                                <div>${escapeHtml(c.message)}</div>
-                                ${c.detail ? `<div style="font-size:0.8rem; color:var(--text-dim); margin-top:0.2rem; white-space:pre-wrap;">${escapeHtml(c.detail)}</div>` : ''}
+                    ${data.checks.map(c => {
+                const cStatus = (c.status || '').toLowerCase();
+                return `
+                        <div class="check-item" data-status="${cStatus}">
+                            <span class="check-status text-${cStatus}">[${escapeHtml(c.status)}]</span>
+                            <div style="flex: 1;">
+                                <div style="font-weight: 500;">${escapeHtml(c.message)}</div>
+                                ${c.detail ? `<div style="font-family: monospace; font-size:0.8rem; color:var(--text-dim); margin-top:0.4rem; padding:0.5rem; background:rgba(0,0,0,0.3); border-radius:4px; white-space:pre-wrap; word-break:break-all;">${escapeHtml(c.detail)}</div>` : ''}
                             </div>
                         </div>
-                    `).join('')}
+                        `;
+            }).join('')}
                 </div>
             `;
 
@@ -330,43 +1170,39 @@
             };
 
             container.appendChild(section);
+            applyFilter();
         }
 
-        function addReportPath(name, path) {
-            const card = getOrCreateCard(name);
-            const report = card.querySelector('.report-path');
-            report.textContent = `Report: ${path}`;
-            report.classList.add('open');
-        }
+        function addReportPath(name, path) { }
 
         function showCombinedReport(path, count) {
-            reportBanner.textContent = `Combined report for ${count} cluster(s): ${path}`;
-            reportBanner.classList.add('open');
+            reportBanner.innerHTML = `<strong>Diagnostic Complete!</strong> Generated combined report for ${count} cluster(s).<br><span style="font-size:0.8rem; font-family:monospace; margin-top:0.5rem; display:block;">${path}</span><br><a href="/report/latest" target="_blank" class="btn btn-outline" style="margin-top:0.5rem; padding: 0.4rem 0.8rem; font-size: 0.8rem;">View HTML Report</a>`;
+            reportBanner.style.display = 'block';
         }
 
         function getOrCreateCard(name) {
             if (clusters[name]) return clusters[name];
-            
+
             const div = document.createElement('div');
-            div.className = 'cluster-card';
+            div.className = 'glass-panel cluster-card';
             div.innerHTML = `
                 <div class="card-header">
                     <div class="cluster-info">
                         <h2>${escapeHtml(name)}</h2>
-                        <p>Multi-cluster health diagnostics</p>
                     </div>
                     <span class="status-pill status-idle">Idle</span>
                 </div>
                 <div class="headline-zone">> Awaiting start...</div>
                 <div style="display: flex; justify-content: flex-end;">
-                    <button class="btn-outline">Expand Report</button>
+                    <button class="btn btn-outline" style="padding: 0.4rem 1rem; font-size: 0.8rem;">Expand Logs</button>
                 </div>
                 <div class="details-area"></div>
-                <div class="report-path"></div>
             `;
 
-            div.querySelector('.btn-outline').onclick = () => {
-                div.querySelector('.details-area').classList.toggle('open');
+            div.querySelector('.btn-outline').onclick = (e) => {
+                const details = div.querySelector('.details-area');
+                details.classList.toggle('open');
+                e.target.textContent = details.classList.contains('open') ? 'Collapse Logs' : 'Expand Logs';
             };
 
             cardsContainer.appendChild(div);
@@ -374,17 +1210,30 @@
             return div;
         }
 
+        // Run Action
         runBtn.onclick = () => {
             if (isRunning) return;
             if (ws.readyState !== WebSocket.OPEN) {
-                showError('WebSocket connection is not available.');
+                showError('WebSocket connection is not available. Please restart the backend.');
                 return;
             }
+
+            const enabledChecks = Array.from(document.querySelectorAll('.check-opt:checked')).map(cb => cb.value);
+
             errorBanner.style.display = 'none';
             errorBanner.textContent = '';
-            ws.send(JSON.stringify({ action: "start_all" }));
+
+            ws.send(JSON.stringify({
+                action: "start_all",
+                enabled_checks: enabledChecks
+            }));
+
             runBtn.disabled = true;
         };
+
+        // Boot
+        init();
     </script>
 </body>
+
 </html>
