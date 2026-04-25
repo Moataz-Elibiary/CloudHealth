@@ -1,0 +1,390 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CloudHealth Beta 3 - Dashboard</title>
+    <style>
+        :root {
+            --primary: #6366f1;
+            --bg: #0f172a;
+            --card-bg: rgba(30, 41, 59, 0.7);
+            --border: rgba(255, 255, 255, 0.1);
+            --text-main: #f8fafc;
+            --text-dim: #94a3b8;
+            --success: #10b981;
+            --fail: #ef4444;
+            --warn: #f59e0b;
+            --error: #fb7185;
+        }
+
+        body {
+            background: var(--bg);
+            color: var(--text-main);
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            margin: 0;
+            padding: 1rem;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+
+        .container { width: 100%; max-width: 1100px; }
+
+        header { text-align: center; margin-bottom: 2rem; }
+        h1 { font-size: 2.2rem; margin: 0; background: linear-gradient(to right, #818cf8, #c084fc); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
+
+        /* Scoreboard */
+        .scoreboard {
+            display: flex;
+            justify-content: center;
+            gap: 2rem;
+            margin-bottom: 2rem;
+            background: var(--card-bg);
+            padding: 1rem 2rem;
+            border-radius: 1rem;
+            border: 1px solid var(--border);
+        }
+        .score-item { text-align: center; }
+        .score-val { font-size: 1.5rem; font-weight: bold; display: block; }
+        .score-lbl { font-size: 0.7rem; text-transform: uppercase; color: var(--text-dim); letter-spacing: 1px; }
+
+        .cluster-card {
+            background: var(--card-bg);
+            backdrop-filter: blur(10px);
+            border: 1px solid var(--border);
+            border-radius: 1rem;
+            padding: 1.5rem;
+            margin-bottom: 1.5rem;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.3);
+        }
+
+        .card-header { display: flex; justify-content: space-between; align-items: center; }
+        .cluster-info h2 { margin: 0; font-size: 1.4rem; color: #fff; }
+        .cluster-info p { margin: 0.2rem 0 0; font-size: 0.9rem; color: var(--text-dim); }
+
+        .status-pill { padding: 0.2rem 0.8rem; border-radius: 2rem; font-size: 0.75rem; font-weight: bold; text-transform: uppercase; }
+        .status-idle { background: #475569; }
+        .status-running, .status-connecting, .status-pushing-backend { background: var(--primary); animation: glow 1.5s infinite alternate; }
+        .status-pass { background: var(--success); }
+        .status-fail { background: var(--fail); }
+        .status-warn { background: var(--warn); color: #111827; }
+        .status-error { background: var(--error); }
+
+        @keyframes glow { from { box-shadow: 0 0 5px var(--primary); } to { box-shadow: 0 0 15px var(--primary); } }
+
+        .headline-zone {
+            margin: 1.5rem 0;
+            padding: 0.75rem 1rem;
+            background: rgba(15, 23, 42, 0.5);
+            border-radius: 0.5rem;
+            border-left: 3px solid var(--primary);
+            font-family: monospace;
+            font-size: 0.85rem;
+            color: #cbd5e1;
+            min-height: 1.2rem;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        .details-area { display: none; margin-top: 1.5rem; border-top: 1px solid var(--border); padding-top: 1.5rem; }
+        .details-area.open { display: block; }
+
+        .section-box {
+            background: rgba(255,255,255,0.03);
+            border: 1px solid var(--border);
+            border-radius: 0.5rem;
+            margin-bottom: 1rem;
+            overflow: hidden;
+        }
+
+        .section-header {
+            padding: 0.75rem 1rem;
+            background: rgba(255,255,255,0.05);
+            display: flex;
+            justify-content: space-between;
+            cursor: pointer;
+        }
+
+        .section-content { padding: 1rem; display: none; }
+        .section-content.open { display: block; }
+
+        .check-item { display: flex; align-items: flex-start; margin-bottom: 0.75rem; font-size: 0.9rem; }
+        .check-status { margin-right: 0.75rem; font-weight: bold; min-width: 50px; }
+        .text-pass { color: var(--success); }
+        .text-fail { color: var(--fail); }
+        .text-warn { color: var(--warn); }
+
+        .btn-main { background: var(--primary); color: white; border: none; padding: 0.8rem 2rem; border-radius: 0.5rem; font-weight: bold; cursor: pointer; transition: transform 0.1s; }
+        .btn-main:active { transform: scale(0.98); }
+        .btn-main:disabled { background: #334155; cursor: not-allowed; }
+
+        .btn-outline { background: transparent; border: 1px solid var(--primary); color: var(--primary); padding: 0.4rem 1rem; border-radius: 0.4rem; cursor: pointer; font-size: 0.85rem; }
+        .btn-outline:hover { background: var(--primary); color: white; }
+
+        .error-banner {
+            display: none;
+            margin-bottom: 1.5rem;
+            padding: 1rem 1.25rem;
+            background: rgba(239, 68, 68, 0.14);
+            border: 1px solid rgba(239, 68, 68, 0.35);
+            border-radius: 0.75rem;
+            color: #fecaca;
+        }
+
+        .report-path {
+            display: none;
+            margin-top: 1rem;
+            font-size: 0.8rem;
+            color: var(--text-dim);
+            word-break: break-all;
+        }
+
+        .report-path.open {
+            display: block;
+        }
+
+        .report-banner {
+            display: none;
+            margin-bottom: 1.5rem;
+            padding: 1rem 1.25rem;
+            background: rgba(16, 185, 129, 0.12);
+            border: 1px solid rgba(16, 185, 129, 0.28);
+            border-radius: 0.75rem;
+            color: #d1fae5;
+            word-break: break-all;
+        }
+
+        .report-banner.open {
+            display: block;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>CloudHealth Beta 3</h1>
+            <p style="color: var(--text-dim); margin-top: 0.5rem;">Distributed Diagnostics & Real-time Orchestration</p>
+        </header>
+
+        <div class="scoreboard">
+            <div class="score-item">
+                <span class="score-val" id="totalPass" style="color: var(--success);">0</span>
+                <span class="score-lbl">Passed</span>
+            </div>
+            <div class="score-item">
+                <span class="score-val" id="totalWarn" style="color: var(--warn);">0</span>
+                <span class="score-lbl">Warnings</span>
+            </div>
+            <div class="score-item">
+                <span class="score-val" id="totalFail" style="color: var(--fail);">0</span>
+                <span class="score-lbl">Failures</span>
+            </div>
+        </div>
+
+        <div id="errorBanner" class="error-banner"></div>
+        <div id="reportBanner" class="report-banner"></div>
+
+        <div style="text-align: center; margin-bottom: 2.5rem;">
+            <button id="runBtn" class="btn-main">Launch All Diagnostics</button>
+        </div>
+
+        <div id="cards"></div>
+    </div>
+
+    <script>
+        const ws = new WebSocket(`ws://${window.location.host}/ws/ui`);
+        const cardsContainer = document.getElementById('cards');
+        const runBtn = document.getElementById('runBtn');
+        const errorBanner = document.getElementById('errorBanner');
+        const reportBanner = document.getElementById('reportBanner');
+        
+        let stats = { pass: 0, warn: 0, fail: 0 };
+        let clusters = {};
+        let isRunning = false;
+
+        ws.onmessage = (e) => {
+            const m = JSON.parse(e.data);
+            if (m.type === 'run_state') handleRunState(m);
+            if (m.type === 'cluster_status') updateStatus(m.cluster, m.status);
+            if (m.type === 'headline') updateHeadline(m.cluster, m.message);
+            if (m.type === 'result') addResult(m.cluster, m.data);
+            if (m.type === 'error') showError(m.cluster ? `${m.cluster}: ${m.message}` : m.message);
+            if (m.type === 'report') addReportPath(m.cluster, m.path);
+            if (m.type === 'reports_ready') showCombinedReport(m.path, m.count);
+            if (m.type === 'complete') {
+                updateStatus(m.cluster, m.summary.overall_status);
+                updateHeadline(m.cluster, "Check sequence complete.");
+            }
+        };
+
+        function escapeHtml(value) {
+            return String(value ?? '')
+                .replaceAll('&', '&amp;')
+                .replaceAll('<', '&lt;')
+                .replaceAll('>', '&gt;')
+                .replaceAll('"', '&quot;')
+                .replaceAll("'", '&#39;');
+        }
+
+        function resetDashboard() {
+            cardsContainer.innerHTML = '';
+            clusters = {};
+            stats = { pass: 0, warn: 0, fail: 0 };
+            updateScoreboard();
+            errorBanner.style.display = 'none';
+            errorBanner.textContent = '';
+            reportBanner.classList.remove('open');
+            reportBanner.textContent = '';
+        }
+
+        function updateScoreboard() {
+            document.getElementById('totalPass').textContent = stats.pass;
+            document.getElementById('totalWarn').textContent = stats.warn;
+            document.getElementById('totalFail').textContent = stats.fail;
+        }
+
+        function handleRunState(message) {
+            if (message.state === 'started') {
+                isRunning = true;
+                resetDashboard();
+                runBtn.disabled = true;
+                runBtn.textContent = 'Diagnostics Running...';
+                return;
+            }
+            if (message.state === 'finished') {
+                isRunning = false;
+                runBtn.disabled = false;
+                runBtn.textContent = 'Launch All Diagnostics';
+            }
+        }
+
+        function normalizeStatus(status) {
+            const normalized = String(status || '').toLowerCase();
+            if (['idle', 'running', 'pass', 'fail', 'warn', 'error', 'connecting', 'pushing backend'].includes(normalized)) {
+                return normalized.replace(' ', '-');
+            }
+            return 'running';
+        }
+
+        function showError(message) {
+            errorBanner.style.display = 'block';
+            errorBanner.textContent = message;
+            if (!isRunning) {
+                runBtn.disabled = false;
+                runBtn.textContent = 'Launch All Diagnostics';
+            }
+        }
+
+        function updateStatus(name, status) {
+            const card = getOrCreateCard(name);
+            const pill = card.querySelector('.status-pill');
+            pill.textContent = status;
+            pill.className = `status-pill status-${normalizeStatus(status)}`;
+        }
+
+        function updateHeadline(name, msg) {
+            const card = getOrCreateCard(name);
+            card.querySelector('.headline-zone').textContent = "> " + msg;
+        }
+
+        function addResult(name, data) {
+            const card = getOrCreateCard(name);
+            const container = card.querySelector('.details-area');
+            
+            const section = document.createElement('div');
+            section.className = 'section-box';
+            
+            const sectionStatus = (data.status || '').toLowerCase();
+            if (sectionStatus === 'fail' || sectionStatus === 'error') stats.fail++;
+            else if (sectionStatus === 'warn') stats.warn++;
+            else stats.pass++;
+            updateScoreboard();
+
+            const statusClass =
+                sectionStatus === 'fail' || sectionStatus === 'error' ? 'text-fail' :
+                sectionStatus === 'warn' || sectionStatus === 'skip' ? 'text-warn' :
+                'text-pass';
+            
+            section.innerHTML = `
+                <div class="section-header">
+                    <span>${escapeHtml(data.name)}</span>
+                    <span class="${statusClass}">${sectionStatus.toUpperCase()}</span>
+                </div>
+                <div class="section-content">
+                    ${data.checks.map(c => `
+                        <div class="check-item">
+                            <span class="check-status text-${escapeHtml(c.status.toLowerCase())}">[${escapeHtml(c.status)}]</span>
+                            <div>
+                                <div>${escapeHtml(c.message)}</div>
+                                ${c.detail ? `<div style="font-size:0.8rem; color:var(--text-dim); margin-top:0.2rem; white-space:pre-wrap;">${escapeHtml(c.detail)}</div>` : ''}
+                            </div>
+                        </div>
+                    `).join('')}
+                </div>
+            `;
+
+            section.querySelector('.section-header').onclick = () => {
+                section.querySelector('.section-content').classList.toggle('open');
+            };
+
+            container.appendChild(section);
+        }
+
+        function addReportPath(name, path) {
+            const card = getOrCreateCard(name);
+            const report = card.querySelector('.report-path');
+            report.textContent = `Report: ${path}`;
+            report.classList.add('open');
+        }
+
+        function showCombinedReport(path, count) {
+            reportBanner.textContent = `Combined report for ${count} cluster(s): ${path}`;
+            reportBanner.classList.add('open');
+        }
+
+        function getOrCreateCard(name) {
+            if (clusters[name]) return clusters[name];
+            
+            const div = document.createElement('div');
+            div.className = 'cluster-card';
+            div.innerHTML = `
+                <div class="card-header">
+                    <div class="cluster-info">
+                        <h2>${escapeHtml(name)}</h2>
+                        <p>Multi-cluster health diagnostics</p>
+                    </div>
+                    <span class="status-pill status-idle">Idle</span>
+                </div>
+                <div class="headline-zone">> Awaiting start...</div>
+                <div style="display: flex; justify-content: flex-end;">
+                    <button class="btn-outline">Expand Report</button>
+                </div>
+                <div class="details-area"></div>
+                <div class="report-path"></div>
+            `;
+
+            div.querySelector('.btn-outline').onclick = () => {
+                div.querySelector('.details-area').classList.toggle('open');
+            };
+
+            cardsContainer.appendChild(div);
+            clusters[name] = div;
+            return div;
+        }
+
+        runBtn.onclick = () => {
+            if (isRunning) return;
+            if (ws.readyState !== WebSocket.OPEN) {
+                showError('WebSocket connection is not available.');
+                return;
+            }
+            errorBanner.style.display = 'none';
+            errorBanner.textContent = '';
+            ws.send(JSON.stringify({ action: "start_all" }));
+            runBtn.disabled = true;
+        };
+    </script>
+</body>
+</html>

@@ -1,0 +1,182 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CloudHealth Beta 3 - Sample (Success)</title>
+    <style>
+        :root {
+            --primary: #6366f1;
+            --bg: #0f172a;
+            --card-bg: rgba(30, 41, 59, 0.7);
+            --border: rgba(255, 255, 255, 0.1);
+            --text-main: #f8fafc;
+            --text-dim: #94a3b8;
+            --success: #10b981;
+            --fail: #ef4444;
+            --warn: #f59e0b;
+        }
+
+        body {
+            background: var(--bg);
+            color: var(--text-main);
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            margin: 0;
+            padding: 2rem;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+
+        .container { width: 100%; max-width: 1100px; }
+
+        header { text-align: center; margin-bottom: 3rem; }
+        h1 { font-size: 2.5rem; margin: 0; background: linear-gradient(to right, #818cf8, #c084fc); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
+
+        .cluster-card {
+            background: var(--card-bg);
+            backdrop-filter: blur(10px);
+            border: 1px solid var(--border);
+            border-radius: 1rem;
+            padding: 1.5rem;
+            margin-bottom: 1.5rem;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.3);
+        }
+
+        .card-header { display: flex; justify-content: space-between; align-items: center; }
+        .cluster-info h2 { margin: 0; font-size: 1.4rem; color: #fff; }
+        .cluster-info p { margin: 0.2rem 0 0; font-size: 0.9rem; color: var(--text-dim); }
+
+        .status-pill { padding: 0.2rem 0.8rem; border-radius: 2rem; font-size: 0.75rem; font-weight: bold; text-transform: uppercase; }
+        .status-pass { background: var(--success); }
+        .status-fail { background: var(--fail); }
+        .status-warn { background: var(--warn); }
+
+        .headline-zone {
+            margin: 1.5rem 0;
+            padding: 1rem;
+            background: rgba(15, 23, 42, 0.5);
+            border-radius: 0.5rem;
+            border-left: 3px solid var(--primary);
+            font-family: monospace;
+            font-size: 0.9rem;
+            color: #cbd5e1;
+            min-height: 1.2rem;
+        }
+
+        .details-area { margin-top: 1.5rem; border-top: 1px solid var(--border); padding-top: 1.5rem; }
+
+        .section-box {
+            background: rgba(255,255,255,0.03);
+            border: 1px solid var(--border);
+            border-radius: 0.5rem;
+            margin-bottom: 1rem;
+            overflow: hidden;
+        }
+
+        .section-header {
+            padding: 0.75rem 1rem;
+            background: rgba(255,255,255,0.05);
+            display: flex;
+            justify-content: space-between;
+            cursor: pointer;
+        }
+
+        .section-content { padding: 1rem; }
+        .section-content.hidden { display: none; }
+
+        .check-item { display: flex; align-items: flex-start; margin-bottom: 0.75rem; font-size: 0.9rem; }
+        .check-status { margin-right: 0.75rem; font-weight: bold; min-width: 50px; }
+        .text-pass { color: var(--success); }
+        .text-fail { color: var(--fail); }
+        .text-warn { color: var(--warn); }
+
+        .btn-outline { background: transparent; border: 1px solid var(--primary); color: var(--primary); padding: 0.4rem 1rem; border-radius: 0.4rem; cursor: pointer; font-size: 0.85rem; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>CloudHealth Beta 3</h1>
+            <p style="color: var(--text-dim); margin-top: 0.5rem;">Distributed Diagnostics & Real-time Orchestration</p>
+        </header>
+
+        <div id="cards">
+            <!-- Sample Cluster 1: Success -->
+            <div class="cluster-card">
+                <div class="card-header">
+                    <div class="cluster-info">
+                        <h2>OCP-Production-01</h2>
+                        <p>Core Infrastructure Health</p>
+                    </div>
+                    <span class="status-pill status-pass">PASS</span>
+                </div>
+                <div class="headline-zone">> Check sequence complete. All systems healthy.</div>
+                
+                <div class="details-area">
+                    <div class="section-box">
+                        <div class="section-header">
+                            <span>etcd Health</span>
+                            <span class="text-pass">PASS</span>
+                        </div>
+                        <div class="section-content">
+                            <div class="check-item">
+                                <span class="check-status text-pass">[PASS]</span>
+                                <div>etcd endpoint health: all members responsive</div>
+                            </div>
+                            <div class="check-item">
+                                <span class="check-status text-pass">[PASS]</span>
+                                <div>Leader changes: 0 in the last 24h</div>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="section-box">
+                        <div class="section-header">
+                            <span>API Server Status</span>
+                            <span class="text-pass">PASS</span>
+                        </div>
+                        <div class="section-content">
+                            <div class="check-item">
+                                <span class="check-status text-pass">[PASS]</span>
+                                <div>API availability: 100% (3/3 nodes)</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Sample Cluster 2: Warning -->
+            <div class="cluster-card">
+                <div class="card-header">
+                    <div class="cluster-info">
+                        <h2>CVIM-Edge-Site-B</h2>
+                        <p>VIM & Compute Resources</p>
+                    </div>
+                    <span class="status-pill status-warn">WARNING</span>
+                </div>
+                <div class="headline-zone">> Completed with warnings in Disk Utilization.</div>
+                
+                <div class="details-area">
+                    <div class="section-box">
+                        <div class="section-header">
+                            <span>Hypervisor Health</span>
+                            <span class="text-warn">WARN</span>
+                        </div>
+                        <div class="section-content">
+                            <div class="check-item">
+                                <span class="check-status text-pass">[PASS]</span>
+                                <div>Hypervisors 'Up': 12/12</div>
+                            </div>
+                            <div class="check-item">
+                                <span class="check-status text-warn">[WARN]</span>
+                                <div>Node edge-comp-04: /var/lib/nova at 82% usage</div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</body>
+</html>

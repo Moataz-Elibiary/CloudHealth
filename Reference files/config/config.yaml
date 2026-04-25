@@ -1,0 +1,60 @@
+# ============================================================================
+# ClusterPulse — config.yaml
+# Tunable parameters for the frontend program.
+# The backend receives these settings via WebSocket — no config file on bastions.
+# ============================================================================
+
+# ── Version source bastion ────────────────────────────────────────────────────
+# The single bastion the bootstrapper checks for updates.
+# Credentials are entered by the user in the browser popup (not stored here).
+source_bastion:
+  host: "192.168.1.10"    # IP of version-source bastion
+  port: 22
+
+# ── Inventory ─────────────────────────────────────────────────────────────────
+inventory_path: "config/inventory.xlsx"
+
+# ── Output ────────────────────────────────────────────────────────────────────
+output_dir: "results"
+
+# ── Backend process config ────────────────────────────────────────────────────
+# Port the backend listens on (localhost only — never exposed externally).
+# The frontend creates an SSH local port-forward over port 22 to reach it.
+backend_port: 8765
+
+# Seconds after losing WebSocket connection before backend auto-exits.
+heartbeat_timeout: 60
+
+# ── Parallelism & Timeouts ────────────────────────────────────────────────────
+parallelism:
+  max_parallel_clusters: 5
+  max_parallel_nodes:    10
+  ssh_timeout:           30
+  cmd_timeout:           60
+
+# ── Check filters ─────────────────────────────────────────────────────────────
+# Uncomment to run only specific check categories:
+# enabled_checks:
+#   - nodes
+#   - pods
+#   - ceph
+#   - host
+
+# ── Health check thresholds ───────────────────────────────────────────────────
+thresholds:
+  disk_pct:           80
+  restart_warn:       10
+  restart_fail:       50
+  pod_age_min_warn_m:  5
+  pod_age_min_fail_m:  2
+  cert_warn_days:      30
+  load_ratio_warn:    1.0
+  load_ratio_fail:    2.0
+  mem_used_pct_warn:   80
+  mem_used_pct_fail:   90
+  swap_used_pct_warn:  50
+
+# ── Report options ────────────────────────────────────────────────────────────
+reports:
+  html:           true
+  email_friendly: true

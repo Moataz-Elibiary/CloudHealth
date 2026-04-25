@@ -1,0 +1,166 @@
+# ============================================================================
+# ClusterPulse Inventory File
+# ============================================================================
+# This file defines all clusters to health-check, their credentials,
+# and per-cluster thresholds / overrides.
+#
+# Usage:
+#   python healthcheck.py -i inventory.yaml
+#   python healthcheck.py -i inventory.yaml --type ocp
+#   python healthcheck.py -i inventory.yaml --checks nodes,pods,ceph,host
+# ============================================================================
+
+# ── Global reusable credentials (referenced by name in cluster entries) ──────
+# These are optional. You can also embed credentials directly in each cluster.
+credentials:
+  bastion_admin:
+    type: ssh
+    username: root
+    password: "YourPassword123"          # or use private_key below
+    # private_key: /home/user/.ssh/id_rsa
+    # private_key_passphrase: ""         # leave empty if key has no passphrase
+    port: 22
+
+  ocp_key_auth:
+    type: ssh
+    username: core                       # RHCOS default user for OCP nodes
+    private_key: /home/user/.ssh/id_rsa
+    port: 22
+
+  node_root:
+    type: ssh
+    username: root
+    private_key: /home/user/.ssh/id_rsa
+    port: 22
+
+
+# ── Clusters ─────────────────────────────────────────────────────────────────
+clusters:
+
+  # ── OCP Cluster Example 1: SSH to bastion, run oc commands ──────────────
+  - name: "prod-ocp-cluster-01"
+    type: ocp
+    description: "Production OCP cluster — DC1"
+
+    # Bastion / installer host where 'oc' CLI is available and logged in
+    installer_host: "192.168.10.5"
+
+    # If oc login is needed from the bastion, specify it here
+    # The engine will run: ssh bastion → oc login <api_url> --token=<token>
+    api_url: "https://api.prod-ocp01.example.com:6443"
+
+    # SSH to the bastion
+    ssh_credentials:
+      username: root
+      private_key: /home/user/.ssh/id_rsa
+      port: 22
+
+    # Optional: list node IPs/names for direct SSH host checks.
+    # If omitted, nodes will be discovered via 'oc get nodes'.
+    nodes:
+      - "192.168.10.100"
+      - "192.168.10.101"
+      - "192.168.10.102"
+      - "192.168.10.110"
+      - "192.168.10.111"
+
+    # OCP API token (used in oc login command on bastion)
+    api_credentials:
+      token: "sha256~xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+      verify_ssl: false
+
+    # Per-cluster thresholds (optional — overrides defaults)
+    disk_threshold: 85
+    restart_warn_threshold: 10
+    restart_fail_threshold: 50
+    pod_age_min_warn: 5
+    pod_age_min_fail: 2
+
+    tags:
+      environment: production
+      datacenter: DC1
+      team: platform
+
+
+  # ── OCP Cluster Example 2: Different bastion, password auth ─────────────
+  - name: "staging-ocp-cluster-02"
+    type: ocp
+    description: "Staging OCP cluster — DC2"
+    installer_host: "10.0.1.50"
+    api_url: "https://api.staging-ocp02.example.com:6443"
+
+    ssh_credentials:
+      username: admin
+      password: "StagingPass456"
+      port: 22
+
+    api_credentials:
+      username: kubeadmin
+      password: "kubeadmin-password-here"
+      verify_ssl: false
+
+    disk_threshold: 80
+
+    tags:
+      environment: staging
+      datacenter: DC2
+
+
+  # ── CVIM Cluster Example 1: Full CVIM / OpenStack ─────────────────────
+  - name: "prod-cvim-site-A"
+    type: cvim
+    description: "Production CVIM OpenStack — Site A"
+
+    # Installer/management node IP
+    installer_host: "172.16.0.10"
+
+    ssh_credentials:
+      username: root
+      password: "CvimRootPass789"
+      port: 22
+
+    # Optional: explicitly list all compute/control/storage nodes
+    # If omitted, the engine will run ciscovim list-nodes to discover them
+    nodes:
+      - "172.16.0.20"   # controller-1
+      - "172.16.0.21"   # controller-2
+      - "172.16.0.22"   # controller-3
+      - "172.16.1.10"   # compute-1
+      - "172.16.1.11"   # compute-2
+      - "172.16.1.12"   # compute-3
+      - "172.16.2.10"   # storage-1
+
+    disk_threshold: 75
+
+    tags:
+      environment: production
+      site: site-A
+      platform: cvim
+
+
+  # ── CVIM Cluster Example 2: Key-based auth, shared credential ref ──────
+  - name: "prod-cvim-site-B"
+    type: cvim
+    description: "Production CVIM OpenStack — Site B"
+    installer_host: "172.16.50.10"
+
+    # Reference a global credential by name
+    ssh_credentials: bastion_admin
+
+    disk_threshold: 80
+
+    tags:
+      environment: production
+      site: site-B
+      platform: cvim
+
+
+  # ── Minimal OCP example (only required fields) ──────────────────────────
+  - name: "dev-ocp-minimal"
+    type: ocp
+    installer_host: "10.99.0.5"
+    ssh_credentials:
+      username: root
+      password: "devpassword"
+    api_credentials:
+      token: "sha256~devtoken"

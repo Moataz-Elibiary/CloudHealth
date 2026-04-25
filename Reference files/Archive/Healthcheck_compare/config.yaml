@@ -1,0 +1,87 @@
+# ============================================================================
+# ClusterPulse — config.yaml
+# All tunable program parameters. CLI flags override these values.
+# Default search paths: config/config.yaml, clusterpulse.yaml, ~/.clusterpulse/config.yaml
+# ============================================================================
+
+# ── Inventory ────────────────────────────────────────────────────────────────
+# Path to inventory.xlsx (relative to working directory, or absolute)
+# Can also be passed via: clusterpulse.py -i /path/to/inventory.xlsx
+inventory_path: "config/inventory.xlsx"
+
+# ── Output ───────────────────────────────────────────────────────────────────
+# Base output directory. Each run creates a timestamped sub-folder.
+output_dir: "results"
+log_dir:    "results"
+
+# ── Parallelism & Timeouts ───────────────────────────────────────────────────
+parallelism:
+  # How many clusters are checked simultaneously
+  max_parallel_clusters: 5
+  # How many nodes within one cluster are SSH-checked simultaneously (host checks)
+  max_parallel_nodes: 10
+  # SSH connection timeout in seconds
+  ssh_timeout: 30
+  # Default command execution timeout in seconds
+  cmd_timeout: 60
+
+# ── Check Filters ─────────────────────────────────────────────────────────────
+# Run all checks by default (null/commented out).
+# To run only specific categories, list them here (or use --checks CLI flag):
+#
+# OCP categories:   version, operators, nodes, pressure, node_disk, etcd,
+#                   controlplane, ceph, pvcs, storageclasses, pods, deployments,
+#                   daemonsets, jobs, hpa, network, ingress, events, certs,
+#                   mcp, nodes_upgrade, quota, rbac, alerts, logging,
+#                   imageregistry, backup
+#
+# CVIM categories:  hypervisors, network, volumes, compute_svc, identity,
+#                   image_svc, cloudpulse, vms, vm_errors, rabbitmq, mariadb,
+#                   memcached, containers, ceph, ceph_pools, ovs, haproxy,
+#                   nfs, installer
+#
+# Host categories:  host  (covers all physical server sub-checks)
+#
+# enabled_checks:
+#   - nodes
+#   - pods
+#   - ceph
+#   - host
+
+# ── Health Check Thresholds ───────────────────────────────────────────────────
+thresholds:
+  # Disk utilization % that triggers FAIL
+  disk_pct: 80
+
+  # Pod restart counts
+  restart_warn: 10      # triggers WARN
+  restart_fail: 50      # triggers FAIL
+
+  # Pod age (minutes) — pods younger than this during audit are flagged
+  pod_age_min_warn_m: 5
+  pod_age_min_fail_m: 2
+
+  # Certificate expiry warning (days before expiry)
+  cert_warn_days: 30
+
+  # Load average / CPU count ratio
+  load_ratio_warn: 1.0   # WARN if load/CPU > this
+  load_ratio_fail: 2.0   # FAIL if load/CPU > this
+
+  # Memory used percentage
+  mem_used_pct_warn: 80
+  mem_used_pct_fail: 90
+
+  # Swap used percentage (WARN threshold)
+  swap_used_pct_warn: 50
+
+# ── Report Options ─────────────────────────────────────────────────────────────
+reports:
+  # Generate interactive HTML report (browser)
+  html: true
+  # Generate email-friendly inline-styled HTML (for mail body)
+  email_friendly: true
+
+# ── Misc ──────────────────────────────────────────────────────────────────────
+# Enable verbose logging to console (same as --verbose flag)
+verbose: false

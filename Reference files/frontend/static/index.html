@@ -1,0 +1,523 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>ClusterPulse</title>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@300;400;500;600;700&display=swap');
+
+:root {
+  --bg0:#0f1117; --bg1:#171923; --bg2:#1e2333; --bg3:#252d40;
+  --border:#2a3350; --border2:#354060;
+  --text:#e8edf8; --muted:#7a8aaa; --dim:#4a5570;
+  --pass:#22c55e; --fail:#ef4444; --warn:#f59e0b; --info:#60a5fa;
+  --amber:#f59e0b;
+  --mono:'IBM Plex Mono','Fira Code',monospace;
+  --sans:'IBM Plex Sans',system-ui,sans-serif;
+  --r:6px;
+}
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+body{font-family:var(--sans);background:var(--bg0);color:var(--text);
+     min-height:100vh;-webkit-font-smoothing:antialiased}
+
+/* ── HEADER ── */
+.hdr{background:var(--bg1);border-bottom:1px solid var(--border);
+     padding:16px 32px;display:flex;align-items:center;gap:16px;
+     position:sticky;top:0;z-index:100}
+.logo{display:flex;align-items:center;gap:10px}
+.logo-icon{width:32px;height:32px;background:linear-gradient(135deg,#f59e0b,#ef4444);
+           border-radius:7px;display:flex;align-items:center;justify-content:center;
+           font-size:16px}
+.logo-name{font-family:var(--mono);font-size:15px;font-weight:600;color:var(--text)}
+.logo-ver{font-size:10px;color:var(--muted)}
+.hdr-status{margin-left:auto;display:flex;align-items:center;gap:12px}
+.status-pill{font-family:var(--mono);font-size:11px;font-weight:700;
+             padding:4px 14px;border-radius:20px;letter-spacing:.5px}
+.sp-idle   {background:rgba(107,114,128,.15);color:#6b7280;border:1px solid #6b728040}
+.sp-running{background:rgba(96,165,250,.15);color:var(--info);border:1px solid #60a5fa40}
+.sp-done   {background:rgba(34,197,94,.15);color:var(--pass);border:1px solid #22c55e40}
+.sp-error  {background:rgba(239,68,68,.15);color:var(--fail);border:1px solid #ef444440}
+
+/* ── MAIN ── */
+.main{max-width:1200px;margin:0 auto;padding:24px 32px 60px}
+
+/* ── SCOREBOARD ── */
+.scoreboard{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));
+            gap:10px;margin-bottom:24px}
+.score-card{background:var(--bg1);border:1px solid var(--border);border-radius:var(--r);
+            padding:14px 18px;position:relative;overflow:hidden}
+.score-card::before{content:'';position:absolute;top:0;left:0;right:0;height:2px}
+.sc-pass::before{background:var(--pass)} .sc-fail::before{background:var(--fail)}
+.sc-warn::before{background:var(--warn)} .sc-info::before{background:var(--info)}
+.sc-dim::before{background:var(--dim)}
+.score-label{font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.6px;margin-bottom:4px}
+.score-val{font-family:var(--mono);font-size:26px;font-weight:600;line-height:1}
+.sc-pass .score-val{color:var(--pass)} .sc-fail .score-val{color:var(--fail)}
+.sc-warn .score-val{color:var(--warn)} .sc-info .score-val{color:var(--info)}
+.sc-dim  .score-val{color:var(--text)}
+
+/* ── START BUTTON ── */
+.btn-run{
+  font-family:var(--mono);font-size:13px;font-weight:600;letter-spacing:.5px;
+  padding:10px 28px;border-radius:6px;cursor:pointer;
+  background:linear-gradient(135deg,#f59e0b,#ef4444);
+  color:#0f1117;border:none;
+  transition:opacity .15s,transform .1s;
+  margin-bottom:24px;display:block;
+}
+.btn-run:hover{opacity:.88;transform:translateY(-1px)}
+.btn-run:disabled{opacity:.35;cursor:not-allowed;transform:none}
+.btn-run:active{transform:translateY(0)}
+
+/* ── CLUSTER LIVE CARDS ── */
+.clusters-grid{display:flex;flex-direction:column;gap:8px}
+
+.cluster-card{
+  border:1px solid var(--border);border-radius:var(--r);
+  overflow:hidden;transition:border-color .2s;
+}
+.cluster-card:hover{border-color:var(--border2)}
+
+.cluster-hdr{
+  display:flex;align-items:center;gap:10px;
+  padding:12px 16px;background:var(--bg1);
+  cursor:pointer;user-select:none;
+}
+.cluster-hdr::before{content:"▶";font-size:9px;color:var(--dim);transition:transform .2s;flex-shrink:0}
+.cluster-card.open .cluster-hdr::before{transform:rotate(90deg)}
+
+.cluster-type{font-family:var(--mono);font-size:10px;font-weight:600;
+              letter-spacing:1.5px;padding:2px 8px;border-radius:3px;
+              background:var(--bg3);color:var(--info);border:1px solid var(--border2)}
+.cluster-name{font-size:14px;font-weight:600}
+.cluster-env{font-size:11px;color:var(--muted);font-style:italic}
+.cluster-counts{margin-left:auto;display:flex;gap:14px;align-items:center;
+                font-family:var(--mono);font-size:12px;font-weight:600}
+.c-pass{color:var(--pass)} .c-fail{color:var(--fail)} .c-warn{color:var(--warn)}
+.cluster-dur{font-family:var(--mono);font-size:10px;color:var(--dim)}
+
+.cluster-body{background:var(--bg0);padding:8px 14px 12px;display:none}
+.cluster-card.open .cluster-body{display:block}
+
+/* ── SECTION ROWS (live) ── */
+.section-row{
+  display:flex;align-items:center;gap:8px;
+  padding:5px 10px;border-radius:4px;margin-bottom:3px;
+  font-size:12px;background:var(--bg2);border:1px solid var(--border);
+}
+.section-row.ws-FAIL,.section-row.ws-ERROR{border-left:3px solid var(--fail);background:rgba(239,68,68,.05)}
+.section-row.ws-WARN {border-left:3px solid var(--warn);background:rgba(245,158,11,.05)}
+.section-row.ws-PASS {border-left:3px solid var(--pass)}
+.section-row.ws-running{border-left:3px solid var(--info);animation:pulse 1.5s infinite}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.6}}
+
+.srow-name{font-family:var(--mono);font-size:11px;flex:1}
+.srow-counts{display:flex;gap:8px;font-family:var(--mono);font-size:11px;font-weight:600}
+.srow-dur{font-family:var(--mono);font-size:10px;color:var(--dim)}
+
+/* ── BADGE ── */
+.badge{display:inline-flex;align-items:center;gap:3px;padding:2px 8px;
+       border-radius:4px;font-family:var(--mono);font-size:10px;font-weight:700;
+       white-space:nowrap;letter-spacing:.4px;border:1px solid}
+.b-PASS,.b-pass  {color:var(--pass);background:rgba(34,197,94,.12); border-color:rgba(34,197,94,.35)}
+.b-FAIL,.b-fail  {color:var(--fail);background:rgba(239,68,68,.12); border-color:rgba(239,68,68,.35)}
+.b-ERROR,.b-error{color:var(--fail);background:rgba(239,68,68,.12); border-color:rgba(239,68,68,.35)}
+.b-WARN,.b-warn  {color:var(--warn);background:rgba(245,158,11,.12);border-color:rgba(245,158,11,.35)}
+.b-INFO,.b-info  {color:var(--info);background:rgba(96,165,250,.10);border-color:rgba(96,165,250,.30)}
+.b-SKIP,.b-skip  {color:var(--dim); background:rgba(107,114,128,.10);border-color:rgba(107,114,128,.3)}
+.b-running       {color:var(--info);background:rgba(96,165,250,.10);border-color:rgba(96,165,250,.30)}
+
+/* ── LOG AREA ── */
+.log-area{
+  font-family:var(--mono);font-size:11px;color:var(--muted);
+  background:var(--bg1);border:1px solid var(--border);
+  border-radius:var(--r);padding:12px 14px;margin-bottom:20px;
+  max-height:160px;overflow-y:auto;line-height:1.6;
+}
+.log-line.log-err{color:var(--fail)}
+.log-line.log-warn{color:var(--warn)}
+.log-line.log-ok{color:var(--pass)}
+
+/* ── REPORT READY BANNER ── */
+.report-banner{
+  display:none;
+  background:linear-gradient(135deg,rgba(34,197,94,.12),rgba(96,165,250,.08));
+  border:1px solid rgba(34,197,94,.35);border-radius:var(--r);
+  padding:16px 24px;margin-bottom:20px;
+  align-items:center;gap:16px;
+}
+.report-banner.show{display:flex}
+.report-banner h3{font-size:14px;font-weight:600;color:var(--pass)}
+.report-banner p{font-size:12px;color:var(--muted);margin-top:2px}
+.btn-report{
+  font-family:var(--mono);font-size:11px;font-weight:700;
+  padding:8px 20px;border-radius:4px;text-decoration:none;
+  background:var(--pass);color:#0f1117;border:none;cursor:pointer;
+  margin-left:auto;transition:opacity .15s;flex-shrink:0;
+}
+.btn-report:hover{opacity:.85}
+.btn-email{
+  font-family:var(--mono);font-size:11px;font-weight:600;
+  padding:8px 18px;border-radius:4px;text-decoration:none;
+  background:transparent;color:var(--info);
+  border:1px solid rgba(96,165,250,.4);cursor:pointer;
+  transition:all .15s;flex-shrink:0;
+}
+.btn-email:hover{background:rgba(96,165,250,.1)}
+
+/* ── SCROLLBAR ── */
+::-webkit-scrollbar{width:5px;height:5px}
+::-webkit-scrollbar-track{background:var(--bg1)}
+::-webkit-scrollbar-thumb{background:var(--bg3);border-radius:3px}
+</style>
+</head>
+<body>
+
+<!-- HEADER -->
+<header class="hdr">
+  <div class="logo">
+    <div class="logo-icon">⚡</div>
+    <div>
+      <div class="logo-name">ClusterPulse</div>
+      <div class="logo-ver" id="ver">loading…</div>
+    </div>
+  </div>
+  <div class="hdr-status">
+    <span class="status-pill sp-idle" id="status-pill">Idle</span>
+  </div>
+</header>
+
+<div class="main">
+
+  <!-- SCOREBOARD -->
+  <div class="scoreboard">
+    <div class="score-card sc-dim">
+      <div class="score-label">Clusters</div>
+      <div class="score-val" id="sc-clusters">–</div>
+    </div>
+    <div class="score-card sc-pass">
+      <div class="score-label">Pass</div>
+      <div class="score-val" id="sc-pass">–</div>
+    </div>
+    <div class="score-card sc-fail">
+      <div class="score-label">Fail</div>
+      <div class="score-val" id="sc-fail">–</div>
+    </div>
+    <div class="score-card sc-warn">
+      <div class="score-label">Warn</div>
+      <div class="score-val" id="sc-warn">–</div>
+    </div>
+    <div class="score-card sc-info">
+      <div class="score-label">Sections</div>
+      <div class="score-val" id="sc-sections">–</div>
+    </div>
+  </div>
+
+  <!-- RUN BUTTON -->
+  <button class="btn-run" id="btn-run" onclick="startHealthCheck()">
+    ▶ &nbsp; Run Health Check
+  </button>
+
+  <!-- REPORT READY BANNER -->
+  <div class="report-banner" id="report-banner">
+    <div>
+      <h3>✓ Health Check Complete</h3>
+      <p>Full interactive report with collapse/expand detail is ready.</p>
+    </div>
+    <a class="btn-email" href="/report?format=email" target="_blank">📧 Email HTML</a>
+    <a class="btn-report" href="/report" target="_blank">Open Full Report →</a>
+  </div>
+
+  <!-- LIVE LOG -->
+  <div class="log-area" id="log-area"></div>
+
+  <!-- CLUSTER CARDS -->
+  <div class="clusters-grid" id="clusters-grid"></div>
+
+</div>
+
+<script>
+'use strict';
+
+// ── State ──────────────────────────────────────────────────────────────────
+const state = {
+  clusters: {},   // name → { pass, fail, warn, sections: {name → sectionState} }
+  totals:   { pass:0, fail:0, warn:0, sections:0 },
+  running:  false,
+};
+
+const STATUS_ICON = { PASS:'✓', FAIL:'✕', WARN:'⚠', INFO:'○', SKIP:'–', ERROR:'✕', running:'…' };
+
+// ── Init ───────────────────────────────────────────────────────────────────
+async function init() {
+  const cfg = await fetch('/api/config').then(r => r.json()).catch(() => ({}));
+  document.getElementById('ver').textContent = `v${cfg.version || 'dev'}`;
+  if (cfg.clusters) {
+    cfg.clusters.forEach(c => initClusterCard(c));
+    document.getElementById('sc-clusters').textContent = cfg.clusters.length;
+  }
+}
+
+// ── Cluster card ───────────────────────────────────────────────────────────
+function initClusterCard(cluster) {
+  state.clusters[cluster.name] = { pass:0, fail:0, warn:0, sections:{} };
+  const card = document.createElement('div');
+  card.className = 'cluster-card';
+  card.id = `card-${slug(cluster.name)}`;
+  card.innerHTML = `
+    <div class="cluster-hdr" onclick="toggleCard('${slug(cluster.name)}')">
+      <span class="badge b-INFO" id="badge-${slug(cluster.name)}">● PENDING</span>
+      <span class="cluster-type">${cluster.type.toUpperCase()}</span>
+      <span class="cluster-name">${esc(cluster.name)}</span>
+      ${cluster.environment ? `<span class="cluster-env">${esc(cluster.environment)}</span>` : ''}
+      <span class="cluster-counts">
+        <span class="c-pass" id="cp-${slug(cluster.name)}">–✓</span>
+        <span class="c-fail" id="cf-${slug(cluster.name)}">–✕</span>
+        <span class="c-warn" id="cw-${slug(cluster.name)}">–⚠</span>
+      </span>
+      <span class="cluster-dur" id="cd-${slug(cluster.name)}"></span>
+    </div>
+    <div class="cluster-body" id="body-${slug(cluster.name)}"></div>`;
+  document.getElementById('clusters-grid').appendChild(card);
+}
+
+function toggleCard(s) {
+  const card = document.getElementById(`card-${s}`);
+  card.classList.toggle('open');
+}
+
+// ── WebSocket live stream ──────────────────────────────────────────────────
+let ws = null;
+
+function startHealthCheck() {
+  if (state.running) return;
+  state.running = true;
+
+  // Reset state
+  Object.keys(state.clusters).forEach(n => {
+    state.clusters[n] = { pass:0, fail:0, warn:0, sections:{} };
+  });
+  state.totals = { pass:0, fail:0, warn:0, sections:0 };
+  updateScoreboard();
+  document.getElementById('clusters-grid').querySelectorAll('.cluster-body').forEach(b => b.innerHTML='');
+  document.getElementById('log-area').innerHTML = '';
+  document.getElementById('report-banner').classList.remove('show');
+  document.getElementById('btn-run').disabled = true;
+  setPill('running', 'Running…');
+
+  ws = new WebSocket(`ws://localhost:${location.port || 8080}/ws/live`);
+
+  ws.onmessage = e => {
+    const msg = JSON.parse(e.data);
+    handleMessage(msg);
+  };
+
+  ws.onerror = () => {
+    appendLog('WebSocket error — check that the frontend server is running.', 'err');
+    reset();
+  };
+
+  ws.onclose = () => {
+    if (state.running) {
+      appendLog('Connection closed unexpectedly.', 'warn');
+      reset();
+    }
+  };
+}
+
+// ── Message handlers ───────────────────────────────────────────────────────
+function handleMessage(msg) {
+  switch (msg.type) {
+
+    case 'keepalive': break;
+
+    case 'setup_start':
+      appendLog(`⚙ ${msg.message}`);
+      break;
+
+    case 'setup_done':
+      appendLog(`✓ ${msg.message}`, msg.ready === msg.total ? 'ok' : 'warn');
+      break;
+
+    case 'cluster_start':
+      appendLog(`▶ Starting checks: ${msg.cluster} [${msg.cluster_type?.toUpperCase()}]`);
+      setBadge(msg.cluster, 'running', '● RUNNING');
+      const card = document.getElementById(`card-${slug(msg.cluster)}`);
+      if (card) card.classList.add('open');
+      break;
+
+    case 'cluster_error':
+      appendLog(`✕ ${msg.cluster}: ${msg.message}`, 'err');
+      setBadge(msg.cluster, 'ERROR', '✕ ERROR');
+      break;
+
+    case 'section_start':
+      appendLog(`  ├─ ${msg.section}…`);
+      addSectionRow(msg.cluster, msg.section, 'running');
+      break;
+
+    case 'section_done':
+      updateSectionRow(msg.cluster, msg.section, msg.worst,
+                       msg.pass_count, msg.fail_count, msg.warn_count, msg.duration_s);
+      // Accumulate totals
+      const cs = state.clusters[msg.cluster];
+      if (cs) {
+        cs.pass += msg.pass_count || 0;
+        cs.fail += msg.fail_count || 0;
+        cs.warn += msg.warn_count || 0;
+      }
+      state.totals.sections++;
+      updateClusterCounts(msg.cluster);
+      updateScoreboard();
+      break;
+
+    case 'check_result':
+      // Individual check item — update cluster totals incrementally
+      break;
+
+    case 'cluster_done':
+      const dur = msg.duration_s ? `${msg.duration_s.toFixed(0)}s` : '';
+      const el  = document.getElementById(`cd-${slug(msg.cluster)}`);
+      if (el) el.textContent = dur;
+      const st = msg.login_success === false ? 'ERROR' : msg.overall;
+      setBadge(msg.cluster, st, `${STATUS_ICON[st] || '?'} ${st}`);
+      state.totals.pass += msg.pass_count || 0;
+      state.totals.fail += msg.fail_count || 0;
+      state.totals.warn += msg.warn_count || 0;
+      updateScoreboard();
+      appendLog(`✓ Done: ${msg.cluster} — PASS:${msg.pass_count} FAIL:${msg.fail_count} WARN:${msg.warn_count} ${dur}`
+                , msg.fail_count > 0 ? 'warn' : 'ok');
+      break;
+
+    case 'all_clusters_done':
+      appendLog('━━ All clusters complete ━━', 'ok');
+      break;
+
+    case 'reports_ready':
+      document.getElementById('report-banner').classList.add('show');
+      setPill('done', 'Complete');
+      reset(false);
+      break;
+
+    case 'error':
+      appendLog(`✕ Error: ${msg.message}`, 'err');
+      setPill('error', 'Error');
+      reset();
+      break;
+
+    case 'all_done':
+      // Final payload — browser will receive reports_ready separately
+      break;
+  }
+}
+
+// ── Section row helpers ────────────────────────────────────────────────────
+function addSectionRow(cluster, section, status) {
+  const body = document.getElementById(`body-${slug(cluster)}`);
+  if (!body) return;
+  const id  = `sr-${slug(cluster)}-${slug(section)}`;
+  let   row = document.getElementById(id);
+  if (!row) {
+    row = document.createElement('div');
+    row.className = `section-row ws-running`;
+    row.id = id;
+    row.innerHTML = `
+      <span class="badge b-running">… RUNNING</span>
+      <span class="srow-name">${esc(section)}</span>
+      <span class="srow-counts" id="src-${slug(cluster)}-${slug(section)}"></span>
+      <span class="srow-dur" id="srd-${slug(cluster)}-${slug(section)}"></span>`;
+    body.appendChild(row);
+  }
+}
+
+function updateSectionRow(cluster, section, worst, pass_, fail_, warn_, dur) {
+  const id   = `sr-${slug(cluster)}-${slug(section)}`;
+  const row  = document.getElementById(id);
+  if (!row) return;
+  row.className = `section-row ws-${worst}`;
+  const badge = row.querySelector('.badge');
+  if (badge) {
+    badge.className = `badge b-${worst}`;
+    badge.textContent = `${STATUS_ICON[worst] || '?'} ${worst}`;
+  }
+  const cnts = document.getElementById(`src-${slug(cluster)}-${slug(section)}`);
+  if (cnts) cnts.innerHTML =
+    `<span class="c-pass">${pass_}✓</span>`+
+    `<span class="c-fail">${fail_}✕</span>`+
+    `<span class="c-warn">${warn_}⚠</span>`;
+  const durEl = document.getElementById(`srd-${slug(cluster)}-${slug(section)}`);
+  if (durEl && dur) durEl.textContent = `${dur.toFixed(1)}s`;
+}
+
+// ── UI helpers ─────────────────────────────────────────────────────────────
+function setBadge(cluster, status, label) {
+  const b = document.getElementById(`badge-${slug(cluster)}`);
+  if (!b) return;
+  b.className = `badge b-${status}`;
+  b.textContent = label;
+}
+
+function updateClusterCounts(cluster) {
+  const cs = state.clusters[cluster];
+  if (!cs) return;
+  const s = slug(cluster);
+  setText(`cp-${s}`, `${cs.pass}✓`);
+  setText(`cf-${s}`, `${cs.fail}✕`);
+  setText(`cw-${s}`, `${cs.warn}⚠`);
+}
+
+function updateScoreboard() {
+  setText('sc-pass',    state.totals.pass);
+  setText('sc-fail',    state.totals.fail);
+  setText('sc-warn',    state.totals.warn);
+  setText('sc-sections',state.totals.sections);
+}
+
+function setPill(type, label) {
+  const p = document.getElementById('status-pill');
+  p.className = `status-pill sp-${type}`;
+  p.textContent = label;
+}
+
+function appendLog(msg, cls='') {
+  const area = document.getElementById('log-area');
+  const line = document.createElement('div');
+  line.className = `log-line${cls ? ' log-'+cls : ''}`;
+  line.textContent = `${timestamp()} ${msg}`;
+  area.appendChild(line);
+  area.scrollTop = area.scrollHeight;
+}
+
+function reset(restoreButton=true) {
+  state.running = false;
+  if (restoreButton) {
+    document.getElementById('btn-run').disabled = false;
+    setPill('idle', 'Idle');
+  } else {
+    document.getElementById('btn-run').disabled = false;
+  }
+}
+
+function setText(id, val) {
+  const el = document.getElementById(id);
+  if (el) el.textContent = val;
+}
+
+function slug(s) {
+  return (s||'').replace(/[^a-zA-Z0-9]/g, '_');
+}
+
+function esc(s) {
+  return (s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+
+function timestamp() {
+  return new Date().toTimeString().slice(0,8);
+}
+
+// Boot
+init();
+</script>
+</body>
+</html>

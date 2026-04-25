@@ -1,0 +1,178 @@
+alias ssh='ssh -o ConnectTimeout=10'
+echo "#######################################################################################################################################################"
+echo "##                                        CVIM health check report for `hostname | cut -d'-' -f1` on `date +"%d-%b-%Y %H:%M:%S"`                                                ##"
+echo "#######################################################################################################################################################"
+
+
+
+source /root/openstack-configs/openrc
+#openstack hypervisor list 
+## Check hypervisor list
+HVnumCfg=$(ciscovim list-nodes | grep compute | wc -l)
+HVnumUp=$(openstack hypervisor list | grep -v "+\|Hypervisor Type" | grep up | wc -l)
+
+echo
+
+if [ $HVnumUp -lt $HVnumCfg ]
+ then
+   status1="FAIL"
+   echo " Currently number of Hypervisor active and UP ::::::::::::::::: $HVnumUp / $HVnumCfg Hypervisor have status UP .................................. [ $status1 ]"
+   echo "There seems problem with 1 or more compute nodes ..please check !!"
+ else 
+   status1="PASS"
+   echo " Currently number of Hypervisor active and UP ::::::::::::::::: $HVnumUp / $HVnumCfg Hypervisor have status UP .................................. [ $status1 ]"
+fi
+
+echo
+
+#openstack network agent list
+## should have 32 agents as UP"
+NetnumUpReqd=$(( HVnumCfg * 2  + 12 ))
+
+NetnumUp=$(openstack network agent list | grep -v "+\|Agent Type" | grep UP | wc -l)
+if [ $NetnumUp -lt $NetnumUpReqd ]
+ then
+   status2="FAIL"
+   echo " Currently number of Network-Agents active and UP ::::::::::::::::: $NetnumUp / $NetnumUpReqd - Network agents have status UP ................... [ $status2 ]"
+   echo "There seems problem with 1 or more NETWORK services ..please check !!"
+ else
+   status2="PASS"
+   echo " Currently number of Network-Agents active and UP ::::::::::::::::: $NetnumUp / $NetnumUpReqd - Network agents have status UP ...................... [ $status2 ]"
+fi
+echo
+
+
+#=============================================
+
+
+
+#openstack volume service list
+
+VolSvcUp=$(openstack volume service list | grep -v "+\|Agent Type" | grep up | grep enabled | wc -l)
+if [ $VolSvcUp -lt 4 ]
+ then
+   status3="FAIL"
+   echo " Currently number of Volume Services active and UP ::::::::::::::::: $VolSvcUp / 4  - Volume Service providers have status UP .............. [ $status3 ]"
+   echo "There seems problem with 1 or more Volume / CINDER / CEPH services ..please check !!"
+ else
+   status3="PASS"
+   echo " Currently number of Volume Services active and UP ::::::::::::::::: $VolSvcUp / 4  - Volume Service providers have status UP .............. [ $status3 ]"   
+fi
+
+echo
+
+
+#cloudpulse result
+
+
+if [[ $(cloudpulse result | grep -v "success\|running\|testtype\|+") -eq 0 ]]
+then 
+  echo " Cloudpulse result is Ok or still some are running ................................................................................. [ PASS ]" 
+else 
+  echo " Cloudpulse result needs to be checked again for failed items ...................................................................... [ FAIL ]"
+fi
+
+echo
+
+
+#nova list --all --fields name,OS-EXT-SRV-ATTR:hypervisor_hostname,OS-EXT-SRV-ATTR:instance_name,status
+numCreatedVMs=259   #This is the total number of VMs deployed on the VM. need to see a way to get dynamic value rather than hardcoded"
+numVMs=$(nova list --all --fields name,OS-EXT-SRV-ATTR:hypervisor_hostname,OS-EXT-SRV-ATTR:instance_name,status | grep -v "+\|OS-EXT-SRV\|test" | wc -l)
+if [ $numVMs -lt $numCreatedVMs  ]
+then
+ echo 
+ status5="FAIL"
+ nova list --all --fields name,OS-EXT-SRV-ATTR:hypervisor_hostname,OS-EXT-SRV-ATTR:instance_name,status | grep -v "+\|OS-EXT-SRV\|test"  | grep -v ACTIVE | awk '{ print " The VM " $4 " failed on node " $6 " with instance name " $8}'
+else 
+ status5="PASS"
+fi
+echo " VMs running status :::::: ( $numVMs out of $numCreatedVMs  running) ................................................................................ [ $status5 ] "
+#nova list --all --fields name,OS-EXT-SRV-ATTR:hypervisor_hostname,OS-EXT-SRV-ATTR:instance_name,status > vms.tmp.1
+
+echo
+
+### RabbitMQ check
+
+python /root/installer-4.2.4/tools/rabbit_api.py | grep CHECK | grep -v '^7.' > /tmp/rabb-out.tmp
+RABBPASSED=$(cat /tmp/rabb-out.tmp | grep PASSED | wc -l)
+RABBFAILED=$(cat /tmp/rabb-out.tmp | grep -v PASSED | wc -l)
+if [ $RABBFAILED -ge 1 ]
+then
+ status7="FAILED"
+else
+ status7="PASS"
+fi
+ echo " Checking RABBIT functional tests ::::::  $RABBPASSED PASSED and $RABBFAILED have problems ............................................................. [ $status7 ] "
+echo
+
+
+
+
+#for allnodes in $(ciscovim list-nodes | grep stc | awk '{ print $2 }'); do ssh $allnodes 'echo "==============="; hostname; echo "==================="; dp -a'; done
+#CTRL-check
+printf " Checking CONTROL nodes services running as Podman containers ..........\n"
+for ctrlnodes in $(ciscovim list-nodes | grep stc | grep control | awk '{ print $2 }')
+do 
+  ssh $ctrlnodes 'curr_num_dp=$(dp -a | grep -v Names | grep Up | wc -l); 
+                  desired_num_dp=$(systemctl list-units --type=service | grep docker | grep -v "ovscleanup\|iptables" | wc -l);
+  if [[ $curr_num_dp -eq $desired_num_dp ]]; then statusDP=" PASS "; else statusDP=" FAIL "; fi
+  printf "  `hostname` :::::: $curr_num_dp out of $desired_num_dp Containers running .................... [$statusDP]\n "'; done
+
+echo
+
+
+#COMP-check
+echo " Checking COMPUTE nodes services running as Podman containers .......... "
+for compnodes in $(ciscovim list-nodes | grep stc | grep compute | awk '{ print $2 }')
+do ssh $compnodes 'curr_num_dp=$(dp -a | grep -v Names | grep Up | wc -l)
+                   desired_num_dp=$(systemctl list-units --type=service | grep docker | grep -v "ovscleanup\|iptables" | wc -l);
+   if [[ $curr_num_dp -eq $desired_num_dp ]]; then statusDP=" PASS "; else statusDP=" FAIL "; fi
+   printf "  `hostname` :::::: $curr_num_dp out of $desired_num_dp Containers running .................... [$statusDP] \n"'; done
+
+echo
+
+############### Code to check ECC errors -- check disabled currently ##########################################################################
+#echo " Checking whether COMPUTE nodes are having any RAM ECC errors .......... "
+#for compnodes in $(ciscovim list-nodes | grep stc | grep compute | awk '{ print $2 }')
+#do ecc_error=$(ssh $compnodes 'dmesg -T | grep -i hardware | grep -i error | wc -l')
+# if [[ $ecc_error -gt 1 ]]; 
+#   then 
+#       statusEccErr=" FAIL "
+#       getEccErrCount=$(( $ecc_error / 8 ))
+#       getEccErrTime=$(ssh $compnodes "dmesg -T | grep -i hardware | grep -i error | tail -1"  | awk '{ print $3"-"$2" at " $4 }' | sort | uniq)
+#       printf "  $compnodes has $getEccErrCount ECC Errors seen last on $getEccErrTime .................... [$statusEccErr] \n"
+#   else statusEccErr=" PASS ";
+# fi
+#done
+
+######
+
+echo
+
+# STOR-check (not important .. only one fluentd)
+echo " Checking STORAGE nodes services running as Podman containers .......... "
+for stnodes in $(ciscovim list-nodes | grep stc | grep storage | awk '{ print $2 }')
+   do ssh $stnodes 'curr_num_dp=$(dp -a | grep -v Names | grep Up | wc -l)
+                    desired_num_dp=$(systemctl list-units --type=service | grep docker | grep -v "ovscleanup\|iptables" | wc -l);
+   if [[ $curr_num_dp -eq $desired_num_dp ]]; then statusDP=" PASS "; else statusDP=" FAIL "; fi
+   printf "  `hostname` :::::: $curr_num_dp out of $desired_num_dp Containers running .................... [$statusDP] \n"'; done
+
+
+#rgac "cephmon ceph -s"
+
+echo
+
+printf " Ceph storage status ::::::::::::::\n`rgac 'cephmon ceph -s' | grep "health\|osd\|client\|usage"` "
+
+echo
+echo "---------------------------------------------------------------------------------"
+
+
+
+
+
+
+echo 
+#rgac "cephmon ceph osd tree"
+#for compnodes in $(ciscovim list-nodes | grep compute | awk '{ print $2 }'); do ssh $compnodes 'echo "======================================="; hostname; echo "==================="; libvirt virsh list --all'; done
+

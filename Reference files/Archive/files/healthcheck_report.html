@@ -1,0 +1,1770 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ClusterPulse Health Report — 2026-04-23 02:16:08</title>
+<style>
+  :root {
+    --bg: #0d1117;
+    --bg2: #161b22;
+    --bg3: #21262d;
+    --border: #30363d;
+    --text: #e6edf3;
+    --text-muted: #8b949e;
+    --pass: #3fb950;
+    --fail: #f85149;
+    --warn: #d29922;
+    --info: #58a6ff;
+    --skip: #6e7681;
+    --radius: 8px;
+    --font-mono: 'JetBrains Mono', 'Fira Code', 'Cascadia Code', monospace;
+    --font-ui: 'Inter', 'Segoe UI', system-ui, sans-serif;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: var(--font-ui);
+    background: var(--bg);
+    color: var(--text);
+    min-height: 100vh;
+    padding: 0 0 60px 0;
+  }
+  /* ── Header ── */
+  .page-header {
+    background: linear-gradient(135deg, #0d1117 0%, #161b22 50%, #1c2128 100%);
+    border-bottom: 1px solid var(--border);
+    padding: 28px 40px 24px;
+    position: sticky; top: 0; z-index: 100;
+    backdrop-filter: blur(10px);
+  }
+  .header-top { display: flex; align-items: center; gap: 16px; margin-bottom: 20px; }
+  .logo { font-size: 22px; font-weight: 800; letter-spacing: -0.5px;
+           background: linear-gradient(135deg, #58a6ff, #3fb950);
+           -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
+  .header-ts { color: var(--text-muted); font-size: 13px; margin-left: auto; }
+  .overall-badge {
+    padding: 4px 14px; border-radius: 20px; font-size: 13px; font-weight: 700;
+    letter-spacing: 0.5px;
+  }
+  .overall-pass { background: rgba(63,185,80,.15); color: var(--pass); border: 1px solid rgba(63,185,80,.4); }
+  .overall-fail { background: rgba(248,81,73,.15); color: var(--fail); border: 1px solid rgba(248,81,73,.4); }
+  .overall-warn { background: rgba(210,153,34,.15); color: var(--warn); border: 1px solid rgba(210,153,34,.4); }
+  /* ── Summary cards ── */
+  .summary-cards {
+    display: flex; gap: 12px; flex-wrap: wrap;
+  }
+  .card {
+    background: var(--bg3); border: 1px solid var(--border);
+    border-radius: var(--radius); padding: 10px 18px; min-width: 110px;
+    text-align: center;
+  }
+  .card-label { font-size: 11px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.5px; }
+  .card-value { font-size: 24px; font-weight: 700; margin-top: 2px; }
+  .card-pass .card-value { color: var(--pass); }
+  .card-fail .card-value { color: var(--fail); }
+  .card-warn .card-value { color: var(--warn); }
+  /* ── Main content ── */
+  .main { max-width: 1200px; margin: 0 auto; padding: 24px 40px; }
+  /* ── Filter bar ── */
+  .filter-bar {
+    display: flex; gap: 8px; margin-bottom: 20px; flex-wrap: wrap; align-items: center;
+  }
+  .filter-bar label { font-size: 13px; color: var(--text-muted); }
+  .filter-btn {
+    background: var(--bg3); border: 1px solid var(--border); color: var(--text);
+    padding: 5px 14px; border-radius: 20px; font-size: 12px; cursor: pointer;
+    transition: all 0.15s;
+  }
+  .filter-btn:hover { border-color: var(--info); color: var(--info); }
+  .filter-btn.active { background: var(--info); border-color: var(--info); color: #000; font-weight: 600; }
+  /* ── Clusters ── */
+  .cluster-block {
+    border: 1px solid var(--border); border-radius: var(--radius);
+    margin-bottom: 12px; overflow: hidden;
+    transition: border-color 0.2s;
+  }
+  .cluster-block:hover { border-color: #58a6ff44; }
+  .cluster-header {
+    display: flex; align-items: center; gap: 10px;
+    padding: 14px 18px; cursor: pointer; list-style: none;
+    background: var(--bg2);
+    transition: background 0.15s;
+  }
+  .cluster-header::-webkit-details-marker { display: none; }
+  .cluster-header::before { content: "▶"; font-size: 10px; color: var(--text-muted); transition: transform 0.2s; }
+  details[open] > .cluster-header::before { transform: rotate(90deg); }
+  .cluster-header:hover { background: var(--bg3); }
+  .cluster-name { font-weight: 700; font-size: 15px; }
+  .cluster-type { font-size: 11px; font-weight: 600; letter-spacing: 1px;
+                   background: var(--bg3); padding: 2px 8px; border-radius: 4px;
+                   color: var(--info); border: 1px solid var(--border); }
+  .cluster-counts { margin-left: auto; display: flex; gap: 8px; }
+  .cluster-ts { font-size: 11px; color: var(--text-muted); }
+  .cluster-error { color: var(--fail); font-size: 13px; }
+  .cluster-body { padding: 12px 18px 18px; background: var(--bg); }
+  /* ── Sections ── */
+  .section-block {
+    border: 1px solid var(--border); border-radius: 6px;
+    margin-bottom: 8px; overflow: hidden;
+  }
+  .status-border-fail { border-left: 3px solid var(--fail); }
+  .status-border-warn { border-left: 3px solid var(--warn); }
+  .status-border-pass { border-left: 3px solid var(--pass); }
+  .status-border-info { border-left: 3px solid var(--info); }
+  .section-header {
+    display: flex; align-items: center; gap: 8px;
+    padding: 10px 14px; cursor: pointer; list-style: none;
+    background: var(--bg2); transition: background 0.15s;
+  }
+  .section-header::-webkit-details-marker { display: none; }
+  .section-header::before { content: "▶"; font-size: 9px; color: var(--text-muted); transition: transform 0.2s; }
+  details[open] > .section-header::before { transform: rotate(90deg); }
+  .section-header:hover { background: var(--bg3); }
+  .section-name { font-weight: 600; font-size: 13px; }
+  .section-counts { margin-left: auto; display: flex; gap: 6px; font-size: 12px; }
+  .section-body { padding: 12px 16px; }
+  /* ── Check items ── */
+  .check-list { list-style: none; display: flex; flex-direction: column; gap: 4px; }
+  .check-item {
+    display: flex; align-items: flex-start; gap: 8px;
+    padding: 6px 10px; border-radius: 4px; font-size: 13px;
+    background: var(--bg3); border: 1px solid transparent;
+  }
+  .check-item.status-fail { border-color: rgba(248,81,73,.3); background: rgba(248,81,73,.06); }
+  .check-item.status-warn { border-color: rgba(210,153,34,.3); background: rgba(210,153,34,.06); }
+  .check-item.status-pass { border-color: rgba(63,185,80,.2); }
+  .item-msg { flex: 1; line-height: 1.4; }
+  .item-detail {
+    font-family: var(--font-mono); font-size: 11px; color: var(--text-muted);
+    background: var(--bg); padding: 8px 10px; border-radius: 4px;
+    margin-top: 6px; width: 100%; overflow-x: auto; white-space: pre;
+    border: 1px solid var(--border);
+  }
+  .cmd-label {
+    display: block; font-family: var(--font-mono); font-size: 11px;
+    color: var(--info); margin-bottom: 4px; opacity: 0.7;
+  }
+  /* ── Raw log ── */
+  .raw-log { margin-top: 10px; }
+  .raw-log summary {
+    cursor: pointer; font-size: 12px; color: var(--text-muted);
+    padding: 4px 8px; border-radius: 4px; list-style: none;
+    display: inline-flex; align-items: center; gap: 6px;
+  }
+  .raw-log summary:hover { color: var(--text); }
+  .raw-log pre {
+    font-family: var(--font-mono); font-size: 11px; color: #cdd9e5;
+    background: var(--bg); padding: 12px; border-radius: 4px;
+    margin-top: 6px; overflow-x: auto; white-space: pre;
+    border: 1px solid var(--border); max-height: 400px; overflow-y: auto;
+  }
+  /* ── Badges ── */
+  .badge {
+    display: inline-flex; align-items: center; gap: 3px;
+    padding: 2px 8px; border-radius: 4px; font-size: 11px;
+    font-weight: 700; white-space: nowrap; letter-spacing: 0.3px;
+  }
+  .badge-pass { background: rgba(63,185,80,.15);  color: var(--pass); }
+  .badge-fail { background: rgba(248,81,73,.15);  color: var(--fail); }
+  .badge-warn { background: rgba(210,153,34,.15); color: var(--warn); }
+  .badge-info { background: rgba(88,166,255,.15); color: var(--info); }
+  .badge-skip { background: rgba(110,118,129,.15); color: var(--skip); }
+  /* ── Counts ── */
+  .cnt { font-size: 12px; font-weight: 600; }
+  .cnt.pass { color: var(--pass); }
+  .cnt.fail { color: var(--fail); }
+  .cnt.warn { color: var(--warn); }
+  .dur { font-size: 11px; color: var(--text-muted); }
+  /* ── Search ── */
+  .search-box {
+    background: var(--bg3); border: 1px solid var(--border); color: var(--text);
+    padding: 6px 14px; border-radius: 6px; font-size: 13px; width: 280px;
+    outline: none; margin-left: auto;
+  }
+  .search-box:focus { border-color: var(--info); }
+  /* ── Expand/Collapse all ── */
+  .action-btn {
+    background: transparent; border: 1px solid var(--border); color: var(--text-muted);
+    padding: 5px 12px; border-radius: 6px; font-size: 12px; cursor: pointer;
+    transition: all 0.15s;
+  }
+  .action-btn:hover { border-color: var(--info); color: var(--info); }
+</style>
+</head>
+<body>
+
+<div class="page-header">
+  <div class="header-top">
+    <div class="logo">⚡ ClusterPulse</div>
+    <div class="overall-badge overall-fail">FAIL</div>
+    <div class="header-ts">Generated: 2026-04-23 02:16:08</div>
+  </div>
+  
+        <div class="summary-cards">
+          <div class="card card-fail">
+            <div class="card-label">Overall</div>
+            <div class="card-value">FAIL</div>
+          </div>
+          <div class="card">
+            <div class="card-label">Clusters</div>
+            <div class="card-value">4</div>
+          </div>
+          <div class="card card-fail">
+            <div class="card-label">Failed Clusters</div>
+            <div class="card-value">2</div>
+          </div>
+          <div class="card card-pass">
+            <div class="card-label">Total PASS</div>
+            <div class="card-value">137</div>
+          </div>
+          <div class="card card-fail">
+            <div class="card-label">Total FAIL</div>
+            <div class="card-value">11</div>
+          </div>
+          <div class="card card-warn">
+            <div class="card-label">Total WARN</div>
+            <div class="card-value">8</div>
+          </div>
+        </div>
+</div>
+
+<div class="main">
+  <div class="filter-bar">
+    <label>Show:</label>
+    <button class="filter-btn active" onclick="filterClusters('all', this)">All</button>
+    <button class="filter-btn" onclick="filterClusters('fail', this)">Failures Only</button>
+    <button class="filter-btn" onclick="filterClusters('warn', this)">Warnings</button>
+    <button class="action-btn" onclick="expandAll()">Expand All</button>
+    <button class="action-btn" onclick="collapseAll()">Collapse All</button>
+    <input class="search-box" type="text" placeholder="🔍 Search clusters / checks…"
+           oninput="searchItems(this.value)" />
+  </div>
+
+  <div id="clusters-container">
+    
+      <details class="cluster-block" id="cluster_0" open>
+        <summary class="cluster-header status-fail">
+          <span class="badge badge-fail">✘ FAIL</span>
+          <span class="cluster-name">prod-ocp-cluster-01</span>
+          <span class="cluster-type badge-type">OCP</span>
+          <span class="cluster-counts"><span class="cnt pass">63✔</span> <span class="cnt fail">6✘</span> <span class="cnt warn">5⚠</span></span>
+          <span class="dur">87s</span>
+          <span class="cluster-ts">2026-04-23 02:14:41</span>
+        </summary>
+        <div class="cluster-body">
+          
+        <details class="section-block status-border-pass" id="c0_s0">
+          <summary class="section-header">
+            <span class="badge badge-pass">✔ PASS</span>
+            <span class="section-name">Cluster Version &amp; API Server</span>
+            <span class="section-counts"><span class="cnt pass">4✔</span> <span class="cnt fail">0✘</span> <span class="cnt warn">0⚠</span></span>
+             <span class='dur'>3.0s</span>
+          </summary>
+          <div class="section-body">
+            <ul class="check-list">
+              <li class="check-item status-pass">
+                <span class="badge badge-pass">✔ PASS</span>
+                <span class="item-msg">API Server reachable — Server Version: 4.14.12</span>
+                <code class="cmd-label">$ oc version</code>
+              </li>
+              <li class="check-item status-pass">
+                <span class="badge badge-pass">✔ PASS</span>
+                <span class="item-msg">ClusterVersion Available=True</span>
+                <code class="cmd-label">$ oc get clusterversion version -o jsonpath='{...}'</code>
+              </li>
+              <li class="check-item status-pass">
+                <span class="badge badge-pass">✔ PASS</span>
+                <span class="item-msg">ClusterVersion Progressing=False (no upgrade in progress)</span>
+                <code class="cmd-label">$ oc get clusterversion ...</code>
+              </li>
+              <li class="check-item status-pass">
+                <span class="badge badge-pass">✔ PASS</span>
+                <span class="item-msg">ClusterVersion Degraded=False</span>
+                <code class="cmd-label">$ oc get clusterversion ...</code>
+              </li></ul>
+            
+            <details class="raw-log">
+              <summary>📋 Raw Command Log</summary>
+              <pre>$ oc version
+Client Version: 4.14.12
+Server Version: 4.14.12
+Kubernetes Version: v1.27.8+4fab128
+</pre>
+            </details>
+          </div>
+        </details>
+        <details class="section-block status-border-pass" id="c0_s1">
+          <summary class="section-header">
+            <span class="badge badge-pass">✔ PASS</span>
+            <span class="section-name">Cluster Operators</span>
+            <span class="section-counts"><span class="cnt pass">1✔</span> <span class="cnt fail">0✘</span> <span class="cnt warn">0⚠</span></span>
+             <span class='dur'>3.0s</span>
+          </summary>
+          <div class="section-body">
+            <ul class="check-list">
+              <li class="check-item status-pass">
+                <span class="badge badge-pass">✔ PASS</span>
+                <span class="item-msg">All 32 cluster operators healthy (Available=True, Degraded=False)</span>
+                
+              </li></ul>
+            
+            <details class="raw-log">
+              <summary>📋 Raw Command Log</summary>
+              <pre>$ oc get clusteroperators --no-headers
+authentication    4.14.12  True  False  False  ...
+console           4.14.12  True  False  False  ...
+dns               4.14.12  True  False  False  ...
+</pre>
+            </details>
+          </div>
+        </details>
+        <details class="section-block status-border-pass" id="c0_s2">
+          <summary class="section-header">
+            <span class="badge badge-pass">✔ PASS</span>
+            <span class="section-name">Node Status</span>
+            <span class="section-counts"><span class="cnt pass">1✔</span> <span class="cnt fail">0✘</span> <span class="cnt warn">0⚠</span></span>
+             <span class='dur'>3.0s</span>
+          </summary>
+          <div class="section-body">
+            <ul class="check-list">
+              <li class="check-item status-pass">
+                <span class="badge badge-pass">✔ PASS</span>
+                <span class="item-msg">All 8 nodes are in Ready state</span>
+                
+              </li>
+              <li class="check-item status-info">
+                <span class="badge badge-info">ℹ INFO</span>
+                <span class="item-msg">Node roles — Masters: 3, Workers: 5</span>
+                
+              </li></ul>
+            
+            <details class="raw-log">
+              <summary>📋 Raw Command Log</summary>
+              <pre>$ oc get nodes --no-headers -o wide
+master-01   Ready   master   87d   v1.27.8   192.168.10.100
+master-02   Ready   master   87d   v1.27.8   192.168.10.101
+master-03   Ready   master   87d   v1.27.8   192.168.10.102
+worker-01   Ready   worker   87d   v1.27.8   192.168.10.110
+worker-02   Ready   worker   87d   v1.27.8   192.168.10.111
+</pre>
+            </details>
+          </div>
+        </details>
+        <details class="section-block status-border-pass" id="c0_s3">
+          <summary class="section-header">
+            <span class="badge badge-pass">✔ PASS</span>
+            <span class="section-name">Node Resource Pressure</span>
+            <span class="section-counts"><span class="cnt pass">1✔</span> <span class="cnt fail">0✘</span> <span class="cnt warn">0⚠</span></span>
+             <span class='dur'>3.0s</span>
+          </summary>
+          <div class="section-body">
+            <ul class="check-list">
+              <li class="check-item status-pass">
+                <span class="badge badge-pass">✔ PASS</span>
+                <span class="item-msg">No MemoryPressure / DiskPressure / PIDPressure on any node</span>
+                
+              </li></ul>
+            
+          </div>
+        </details>
+        <details class="section-block status-border-pass" id="c0_s4">
+          <summary class="section-header">
+            <span class="badge badge-pass">✔ PASS</span>
+            <span class="section-name">etcd Health</span>
+            <span class="section-counts"><span class="cnt pass">2✔</span> <span class="cnt fail">0✘</span> <span class="cnt warn">0⚠</span></span>
+             <span class='dur'>4.0s</span>
+          </summary>
+          <div class="section-body">
+            <ul class="check-list">
+              <li class="check-item status-pass">
+                <span class="badge badge-pass">✔ PASS</span>
+                <span class="item-msg">All 3 etcd pods are Running</span>
+                
+              </li>
+              <li class="check-item status-pass">
+                <span class="badge badge-pass">✔ PASS</span>
+                <span class="item-msg">etcd endpoints are healthy</span>
+                
+              </li></ul>
+            
+            <details class="raw-log">
+              <summary>📋 Raw Command Log</summary>
+              <pre>$ oc get pods -n openshift-etcd -l app=etcd --no-headers -o wide
+etcd-master-01   4/4   Running   0   87d
+etcd-master-02   4/4   Running   0   87d
+etcd-master-03   4/4   Running   0   87d
+</pre>
+            </details>
+          </div>
+        </details>
+        <details class="section-block status-border-fail" id="c0_s5">
+          <summary class="section-header">
+            <span class="badge badge-fail">✘ FAIL</span>
+            <span class="section-name">Control-Plane Critical Pods</span>
+            <span class="section-counts"><span class="cnt pass">4✔</span> <span class="cnt fail">1✘</span> <span class="cnt warn">0⚠</span></span>
+             <span class='dur'>5.0s</span>
+          </summary>
+          <div class="section-body">
+            <ul class="check-list">
+              <li class="check-item status-pass">
+                <span class="badge badge-pass">✔ PASS</span>
+                <span class="item-msg">openshift-apiserver: all 3 pods healthy</span>
+                
+              </li>
+              <li class="check-item status-pass">
+                <span class="badge badge-pass">✔ PASS</span>
+                <span class="item-msg">openshift-controller-manager: all 3 pods healthy</span>
+                
+              </li>
+              <li class="check-item status-pass">
+                <span class="badge badge-pass">✔ PASS</span>
+                <span class="item-msg">openshift-kube-apiserver: all 3 pods healthy</span>
+                
+              </li>
+              <li class="check-item status-fail">
+                <span class="badge badge-fail">✘ FAIL</span>
+                <span class="item-msg">openshift-kube-controller-manager: 1/3 pods not healthy</span>
+                <code class="cmd-label">$ oc get pods -n openshift-kube-controller-manager --no-headers</code><pre class="item-detail">kube-controller-manager-master-02   0/4   CrashLoopBackOff   7   2h
+kube-controller-manager-master-01   4/4   Running            0   87d
+kube-controller-manager-master-03   4/4   Running            0   87d</pre>
+              </li>
+              <li class="check-item status-pass">
+                <span class="badge badge-pass">✔ PASS</span>
+                <span class="item-msg">openshift-kube-scheduler: all 3 pods healthy</span>
+                
+              </li></ul>
+            
+          </div>
+        </details>
+        <details class="section-block status-border-warn" id="c0_s6">
+          <summary class="section-header">
+            <span class="badge badge-warn">⚠ WARN</span>
+            <span class="section-name">Ceph / ODF Storage</span>
+            <span class="section-counts"><span class="cnt pass">7✔</span> <span class="cnt fail">0✘</span> <span class="cnt warn">1⚠</span></span>
+             <span class='dur'>10.0s</span>
+          </summary>
+          <div class="section-body">
+            <ul class="check-list">
+              <li class="check-item status-info">
+                <span class="badge badge-info">ℹ INFO</span>
+                <span class="item-msg">ODF namespace detected: openshift-storage</span>
+                
+              </li>
+              <li class="check-item status-pass">
+                <span class="badge badge-pass">✔ PASS</span>
+                <span class="item-msg">All 42 ODF pods are healthy</span>
+                
+              </li>
+              <li class="check-item status-pass">
+                <span class="badge badge-pass">✔ PASS</span>
+                <span class="item-msg">rook-ceph-mon: 3 pod(s) Running</span>
+                
+              </li>
+              <li class="check-item status-pass">
+                <span class="badge badge-pass">✔ PASS</span>
+                <span class="item-msg">rook-ceph-mgr: 2 pod(s) Running</span>
+                
+              </li>
+              <li class="check-item status-pass">
+                <span class="badge badge-pass">✔ PASS</span>
+                <span class="item-msg">rook-ceph-osd: 12 pod(s) Running</span>
+                
+              </li>
+              <li class="check-item status-warn">
+                <span class="badge badge-warn">⚠ WARN</span>
+                <span class="item-msg">Ceph cluster health: HEALTH_WARN</span>
+                <pre class="item-detail">1 slow ops, oldest one blocked for 12 sec, daemons [osd.2] have blocked ops.
+pg 2.3 is active+undersized+degraded</pre>
+              </li>
+              <li class="check-item status-pass">
+                <span class="badge badge-pass">✔ PASS</span>
+                <span class="item-msg">All Ceph OSDs are up</span>
+                
+              </li>
+              <li class="check-item status-pass">
+                <span class="badge badge-pass">✔ PASS</span>
+                <span class="item-msg">Ceph PG status looks healthy</span>
+                
+              </li>
+              <li class="check-item status-pass">
+                <span class="badge badge-pass">✔ PASS</span>
+                <span class="item-msg">StorageCluster phase: Ready</span>
+                
+              </li></ul>
+            
+          </div>
+        </details>
+        <details class="section-block status-border-pass" id="c0_s7">
+          <summary class="section-header">
+            <span class="badge badge-pass">✔ PASS</span>
+            <span class="section-name">Persistent Volume Claims</span>
+            <span class="section-counts"><span class="cnt pass">1✔</span> <span class="cnt fail">0✘</span> <span class="cnt warn">0⚠</span></span>
+             <span class='dur'>3.0s</span>
+          </summary>
+          <div class="section-body">
+            <ul class="check-list">
+              <li class="check-item status-pass">
+                <span class="badge badge-pass">✔ PASS</span>
+                <span class="item-msg">All 87 PVCs are Bound</span>
+                
+              </li></ul>
+            
+          </div>
+        </details>
+        <details class="section-block status-border-fail" id="c0_s8">
+          <summary class="section-header">
+            <span class="badge badge-fail">✘ FAIL</span>
+            <span class="section-name">Cluster-Wide Pod Audit</span>
+            <span class="section-counts"><span class="cnt pass">1✔</span> <span class="cnt fail">2✘</span> <span class="cnt warn">1⚠</span></span>
+             <span class='dur'>12.0s</span>
+          </summary>
+          <div class="section-body">
+            <ul class="check-list">
+              <li class="check-item status-info">
+                <span class="badge badge-info">ℹ INFO</span>
+                <span class="item-msg">Thresholds — restarts WARN≥10 FAIL≥50 | age WARN&lt;5m FAIL&lt;2m</span>
+                
+              </li>
+              <li class="check-item status-info">
+                <span class="badge badge-info">ℹ INFO</span>
+                <span class="item-msg">Total pods scanned: 312</span>
+                
+              </li>
+              <li class="check-item status-fail">
+                <span class="badge badge-fail">✘ FAIL</span>
+                <span class="item-msg">Pod Status — 2/312 pods in error state</span>
+                
+              </li>
+              <li class="check-item status-fail">
+                <span class="badge badge-fail">✘ FAIL</span>
+                <span class="item-msg">Pod Restarts — 1 pod(s) with CRITICAL restart count (≥50)</span>
+                <pre class="item-detail">SEV    NAMESPACE/POD                                      FLAGS                                    AGE    RESTARTS
+---
+FAIL   openshift-kube-controller-manager/kube-ctrl-m-02   status:CrashLoopBackOff, restarts:58[≥50]   2h     58
+FAIL   openshift-monitoring/prometheus-k8s-0               status:OOMKilled                             1h20m  0
+WARN   openshift-logging/collector-xk9p2                   restarts:14[≥10]                             5d     14</pre>
+              </li>
+              <li class="check-item status-warn">
+                <span class="badge badge-warn">⚠ WARN</span>
+                <span class="item-msg">Pod Restarts — 3 pod(s) with HIGH restart count (≥10)</span>
+                
+              </li>
+              <li class="check-item status-pass">
+                <span class="badge badge-pass">✔ PASS</span>
+                <span class="item-msg">Pod Age — All pods older than 5m</span>
+                
+              </li></ul>
+            
+          </div>
+        </details>
+        <details class="section-block status-border-warn" id="c0_s9">
+          <summary class="section-header">
+            <span class="badge badge-warn">⚠ WARN</span>
+            <span class="section-name">Cluster Warning Events (last 1h)</span>
+            <span class="section-counts"><span class="cnt pass">0✔</span> <span class="cnt fail">0✘</span> <span class="cnt warn">1⚠</span></span>
+             <span class='dur'>2.0s</span>
+          </summary>
+          <div class="section-body">
+            <ul class="check-list">
+              <li class="check-item status-warn">
+                <span class="badge badge-warn">⚠ WARN</span>
+                <span class="item-msg">8 Warning event(s) found</span>
+                <pre class="item-detail">openshift-kube-controller-manager   BackOff   Back-off restarting failed container
+openshift-monitoring                OOMKilling   Memory limit reached, killed process
+openshift-storage                   FailedMount  Unable to attach or mount volumes</pre>
+              </li></ul>
+            
+          </div>
+        </details>
+        <details class="section-block status-border-warn" id="c0_s10">
+          <summary class="section-header">
+            <span class="badge badge-warn">⚠ WARN</span>
+            <span class="section-name">API Server Certificate Expiry</span>
+            <span class="section-counts"><span class="cnt pass">1✔</span> <span class="cnt fail">0✘</span> <span class="cnt warn">1⚠</span></span>
+             <span class='dur'>3.0s</span>
+          </summary>
+          <div class="section-body">
+            <ul class="check-list">
+              <li class="check-item status-pass">
+                <span class="badge badge-pass">✔ PASS</span>
+                <span class="item-msg">No certificates expiring within 30 days (checked 24 secrets)</span>
+                
+              </li>
+              <li class="check-item status-warn">
+                <span class="badge badge-warn">⚠ WARN</span>
+                <span class="item-msg">Certificate expiring soon: openshift-ingress/router-certs-default — 18 days remaining</span>
+                
+              </li></ul>
+            
+          </div>
+        </details>
+        <details class="section-block status-border-pass" id="c0_s11">
+          <summary class="section-header">
+            <span class="badge badge-pass">✔ PASS</span>
+            <span class="section-name">MachineConfigPool Status</span>
+            <span class="section-counts"><span class="cnt pass">1✔</span> <span class="cnt fail">0✘</span> <span class="cnt warn">0⚠</span></span>
+             <span class='dur'>2.0s</span>
+          </summary>
+          <div class="section-body">
+            <ul class="check-list">
+              <li class="check-item status-pass">
+                <span class="badge badge-pass">✔ PASS</span>
+                <span class="item-msg">All 2 MachineConfigPools healthy (not degraded / not updating)</span>
+                
+              </li></ul>
+            
+          </div>
+        </details>
+        <details class="section-block status-border-fail" id="c0_s12">
+          <summary class="section-header">
+            <span class="badge badge-fail">✘ FAIL</span>
+            <span class="section-name">Prometheus Firing Alerts</span>
+            <span class="section-counts"><span class="cnt pass">0✔</span> <span class="cnt fail">1✘</span> <span class="cnt warn">0⚠</span></span>
+             <span class='dur'>5.0s</span>
+          </summary>
+          <div class="section-body">
+            <ul class="check-list">
+              <li class="check-item status-fail">
+                <span class="badge badge-fail">✘ FAIL</span>
+                <span class="item-msg">2 critical alert(s) firing</span>
+                <pre class="item-detail">KubeControllerManagerDown [openshift-kube-controller-manager]
+PrometheusOperatorListErrors [openshift-monitoring]</pre>
+              </li>
+              <li class="check-item status-info">
+                <span class="badge badge-info">ℹ INFO</span>
+                <span class="item-msg">Alertmanager: 6 active alert(s)</span>
+                
+              </li></ul>
+            
+          </div>
+        </details>
+        <details class="section-block status-border-pass" id="c0_s13">
+          <summary class="section-header">
+            <span class="badge badge-pass">✔ PASS</span>
+            <span class="section-name">Host: master-01 (192.168.10.100)</span>
+            <span class="section-counts"><span class="cnt pass">10✔</span> <span class="cnt fail">0✘</span> <span class="cnt warn">0⚠</span></span>
+             <span class='dur'>20.0s</span>
+          </summary>
+          <div class="section-body">
+            <ul class="check-list">
+              <li class="check-item status-pass">
+                <span class="badge badge-pass">✔ PASS</span>
+                <span class="item-msg">Uptime: up 87 days, load average: 1.23, 1.18, 1.05 (load/CPU ratio: 0.08)</span>
+                <code class="cmd-label">$ uptime</code>
+              </li>
+              <li class="check-item status-pass">
+                <span class="badge badge-pass">✔ PASS</span>
+                <span class="item-msg">All disk mounts below 80%</span>
+                <code class="cmd-label">$ df -h</code><pre class="item-detail">/dev/sda1                                40%  /
+/dev/sdb1                                22%  /var
+/dev/sdc1                                55%  /var/lib/etcd</pre>
+              </li>
+              <li class="check-item status-pass">
+                <span class="badge badge-pass">✔ PASS</span>
+                <span class="item-msg">No uncorrectable ECC errors found</span>
+                <code class="cmd-label">$ for f in /sys/devices/system/edac/...</code>
+              </li>
+              <li class="check-item status-pass">
+                <span class="badge badge-pass">✔ PASS</span>
+                <span class="item-msg">Memory — Total: 128G, Used: 64G, Available: 58G</span>
+                
+              </li>
+              <li class="check-item status-pass">
+                <span class="badge badge-pass">✔ PASS</span>
+                <span class="item-msg">No OOM kill events in recent logs</span>
+                
+              </li>
+              <li class="check-item status-pass">
+                <span class="badge badge-pass">✔ PASS</span>
+                <span class="item-msg">All network interfaces are UP (excluding loopback)</span>
+                
+              </li>
+              <li class="check-item status-pass">
+                <span class="badge badge-pass">✔ PASS</span>
+                <span class="item-msg">2 bond interface(s) — all slaves UP</span>
+                
+              </li>
+              <li class="check-item status-info">
+                <span class="badge badge-info">ℹ INFO</span>
+                <span class="item-msg">SR-IOV: 32 Virtual Function(s) configured</span>
+                
+              </li>
+              <li class="check-item status-pass">
+                <span class="badge badge-pass">✔ PASS</span>
+                <span class="item-msg">No critical kernel errors in last 24h</span>
+                
+              </li>
+              <li class="check-item status-pass">
+                <span class="badge badge-pass">✔ PASS</span>
+                <span class="item-msg">No failed systemd services</span>
+                
+              </li>
+              <li class="check-item status-pass">
+                <span class="badge badge-pass">✔ PASS</span>
+                <span class="item-msg">NTP synchronized: Reference ID: 10.0.0.1, System time offset: 0.000012 sec</span>
+                
+              </li></ul>
+            
+          </div>
+        </details>
+        <details class="section-block status-border-pass" id="c0_s14">
+          <summary class="section-header">
+            <span class="badge badge-pass">✔ PASS</span>
+            <span class="section-name">Host: master-02 (192.168.10.101)</span>
+            <span class="section-counts"><span class="cnt pass">10✔</span> <span class="cnt fail">0✘</span> <span class="cnt warn">0⚠</span></span>
+             <span class='dur'>20.0s</span>
+          </summary>
+          <div class="section-body">
+            <ul class="check-list">
+              <li class="check-item status-pass">
+                <span class="badge badge-pass">✔ PASS</span>
+                <span class="item-msg">Uptime: up 87 days, load average: 1.23, 1.18, 1.05 (load/CPU ratio: 0.08)</span>
+                <code class="cmd-label">$ uptime</code>
+              </li>
+              <li class="check-item status-pass">
+                <span class="badge badge-pass">✔ PASS</span>
+                <span class="item-msg">All disk mounts below 80%</span>
+                <code class="cmd-label">$ df -h</code><pre class="item-detail">/dev/sda1                                40%  /
+/dev/sdb1                                22%  /var
+/dev/sdc1                                55%  /var/lib/etcd</pre>
+              </li>
+              <li class="check-item status-pass">
+                <span class="badge badge-pass">✔ PASS</span>
+                <span class="item-msg">No uncorrectable ECC errors found</span>
+                <code class="cmd-label">$ for f in /sys/devices/system/edac/...</code>
+              </li>
+              <li class="check-item status-pass">
+                <span class="badge badge-pass">✔ PASS</span>
+                <span class="item-msg">Memory — Total: 128G, Used: 64G, Available: 58G</span>
+                
+              </li>
+              <li class="check-item status-pass">
+                <span class="badge badge-pass">✔ PASS</span>
+                <span class="item-msg">No OOM kill events in recent logs</span>
+                
+              </li>
+              <li class="check-item status-pass">
+                <span class="badge badge-pass">✔ PASS</span>
+                <span class="item-msg">All network interfaces are UP (excluding loopback)</span>
+                
+              </li>
+              <li class="check-item status-pass">
+                <span class="badge badge-pass">✔ PASS</span>
+                <span class="item-msg">2 bond interface(s) — all slaves UP</span>
+                
+              </li>
+              <li class="check-item status-info">
+                <span class="badge badge-info">ℹ INFO</span>
+                <span class="item-msg">SR-IOV: 32 Virtual Function(s) configured</span>
+                
+              </li>
+              <li class="check-item status-pass">
+                <span class="badge badge-pass">✔ PASS</span>
+                <span class="item-msg">No critical kernel errors in last 24h</span>
+                
+              </li>
+              <li class="check-item status-pass">
+                <span class="badge badge-pass">✔ PASS</span>
+                <span class="item-msg">No failed systemd services</span>
+                
+              </li>
+              <li class="check-item status-pass">
+                <span class="badge badge-pass">✔ PASS</span>
+                <span class="item-msg">NTP synchronized: Reference ID: 10.0.0.1, System time offset: 0.000012 sec</span>
+                
+              </li></ul>
+            
+          </div>
+        </details>
+        <details class="section-block status-border-fail" id="c0_s15">
+          <summary class="section-header">
+            <span class="badge badge-fail">✘ FAIL</span>
+            <span class="section-name">Host: worker-01 (192.168.10.110)</span>
+            <span class="section-counts"><span class="cnt pass">10✔</span> <span class="cnt fail">1✘</span> <span class="cnt warn">0⚠</span></span>
+             <span class='dur'>20.0s</span>
+          </summary>
+          <div class="section-body">
+            <ul class="check-list">
+              <li class="check-item status-pass">
+                <span class="badge badge-pass">✔ PASS</span>
+                <span class="item-msg">Uptime: up 87 days, load average: 1.23, 1.18, 1.05 (load/CPU ratio: 0.08)</span>
+                <code class="cmd-label">$ uptime</code>
+              </li>
+              <li class="check-item status-fail">
+                <span class="badge badge-fail">✘ FAIL</span>
+                <span class="item-msg">Disk /var/lib/containers at 87% (threshold: 80%)</span>
+                <code class="cmd-label">$ df -h</code>
+              </li>
+              <li class="check-item status-pass">
+                <span class="badge badge-pass">✔ PASS</span>
+                <span class="item-msg">Other disk mounts below 80%</span>
+                <code class="cmd-label">$ df -h</code>
+              </li>
+              <li class="check-item status-pass">
+                <span class="badge badge-pass">✔ PASS</span>
+                <span class="item-msg">No uncorrectable ECC errors found</span>
+                <code class="cmd-label">$ for f in /sys/devices/system/edac/...</code>
+              </li>
+              <li class="check-item status-pass">
+                <span class="badge badge-pass">✔ PASS</span>
+                <span class="item-msg">Memory — Total: 128G, Used: 64G, Available: 58G</span>
+                
+              </li>
+              <li class="check-item status-pass">
+                <span class="badge badge-pass">✔ PASS</span>
+                <span class="item-msg">No OOM kill events in recent logs</span>
+                
+              </li>
+              <li class="check-item status-pass">
+                <span class="badge badge-pass">✔ PASS</span>
+                <span class="item-msg">All network interfaces are UP (excluding loopback)</span>
+                
+              </li>
+              <li class="check-item status-pass">
+                <span class="badge badge-pass">✔ PASS</span>
+                <span class="item-msg">2 bond interface(s) — all slaves UP</span>
+                
+              </li>
+              <li class="check-item status-info">
+                <span class="badge badge-info">ℹ INFO</span>
+                <span class="item-msg">SR-IOV: 32 Virtual Function(s) configured</span>
+                
+              </li>
+              <li class="check-item status-pass">
+                <span class="badge badge-pass">✔ PASS</span>
+                <span class="item-msg">No critical kernel errors in last 24h</span>
+                
+              </li>
+              <li class="check-item status-pass">
+                <span class="badge badge-pass">✔ PASS</span>
+                <span class="item-msg">No failed systemd services</span>
+                
+              </li>
+              <li class="check-item status-pass">
+                <span class="badge badge-pass">✔ PASS</span>
+                <span class="item-msg">NTP synchronized: Reference ID: 10.0.0.1, System time offset: 0.000012 sec</span>
+                
+              </li></ul>
+            
+          </div>
+        </details>
+        <details class="section-block status-border-fail" id="c0_s16">
+          <summary class="section-header">
+            <span class="badge badge-fail">✘ FAIL</span>
+            <span class="section-name">Host: worker-02 (192.168.10.111)</span>
+            <span class="section-counts"><span class="cnt pass">9✔</span> <span class="cnt fail">1✘</span> <span class="cnt warn">1⚠</span></span>
+             <span class='dur'>20.0s</span>
+          </summary>
+          <div class="section-body">
+            <ul class="check-list">
+              <li class="check-item status-pass">
+                <span class="badge badge-pass">✔ PASS</span>
+                <span class="item-msg">Uptime: up 87 days, load average: 1.23, 1.18, 1.05 (load/CPU ratio: 0.08)</span>
+                <code class="cmd-label">$ uptime</code>
+              </li>
+              <li class="check-item status-pass">
+                <span class="badge badge-pass">✔ PASS</span>
+                <span class="item-msg">All disk mounts below 80%</span>
+                <code class="cmd-label">$ df -h</code><pre class="item-detail">/dev/sda1                                40%  /
+/dev/sdb1                                22%  /var
+/dev/sdc1                                55%  /var/lib/etcd</pre>
+              </li>
+              <li class="check-item status-warn">
+                <span class="badge badge-warn">⚠ WARN</span>
+                <span class="item-msg">Correctable ECC error detected: /sys/devices/system/edac/mc/mc0/ce_count: 3 (monitor closely)</span>
+                
+              </li>
+              <li class="check-item status-fail">
+                <span class="badge badge-fail">✘ FAIL</span>
+                <span class="item-msg">Uncorrectable ECC error: /sys/devices/system/edac/mc/mc1/ue_count: 1</span>
+                
+              </li>
+              <li class="check-item status-pass">
+                <span class="badge badge-pass">✔ PASS</span>
+                <span class="item-msg">Memory — Total: 128G, Used: 64G, Available: 58G</span>
+                
+              </li>
+              <li class="check-item status-pass">
+                <span class="badge badge-pass">✔ PASS</span>
+                <span class="item-msg">No OOM kill events in recent logs</span>
+                
+              </li>
+              <li class="check-item status-pass">
+                <span class="badge badge-pass">✔ PASS</span>
+                <span class="item-msg">All network interfaces are UP (excluding loopback)</span>
+                
+              </li>
+              <li class="check-item status-pass">
+                <span class="badge badge-pass">✔ PASS</span>
+                <span class="item-msg">2 bond interface(s) — all slaves UP</span>
+                
+              </li>
+              <li class="check-item status-info">
+                <span class="badge badge-info">ℹ INFO</span>
+                <span class="item-msg">SR-IOV: 32 Virtual Function(s) configured</span>
+                
+              </li>
+              <li class="check-item status-pass">
+                <span class="badge badge-pass">✔ PASS</span>
+                <span class="item-msg">No critical kernel errors in last 24h</span>
+                
+              </li>
+              <li class="check-item status-pass">
+                <span class="badge badge-pass">✔ PASS</span>
+                <span class="item-msg">No failed systemd services</span>
+                
+              </li>
+              <li class="check-item status-pass">
+                <span class="badge badge-pass">✔ PASS</span>
+                <span class="item-msg">NTP synchronized: Reference ID: 10.0.0.1, System time offset: 0.000012 sec</span>
+                
+              </li></ul>
+            
+          </div>
+        </details>
+        </div>
+      </details>
+      <details class="cluster-block" id="cluster_1" >
+        <summary class="cluster-header status-pass">
+          <span class="badge badge-pass">✔ PASS</span>
+          <span class="cluster-name">staging-ocp-cluster-02</span>
+          <span class="cluster-type badge-type">OCP</span>
+          <span class="cluster-counts"><span class="cnt pass">39✔</span> <span class="cnt fail">0✘</span> <span class="cnt warn">0⚠</span></span>
+          <span class="dur">45s</span>
+          <span class="cluster-ts">2026-04-23 02:15:23</span>
+        </summary>
+        <div class="cluster-body">
+          
+        <details class="section-block status-border-pass" id="c1_s0">
+          <summary class="section-header">
+            <span class="badge badge-pass">✔ PASS</span>
+            <span class="section-name">Cluster Version &amp; API Server</span>
+            <span class="section-counts"><span class="cnt pass">1✔</span> <span class="cnt fail">0✘</span> <span class="cnt warn">0⚠</span></span>
+             <span class='dur'>5.0s</span>
+          </summary>
+          <div class="section-body">
+            <ul class="check-list">
+              <li class="check-item status-pass">
+                <span class="badge badge-pass">✔ PASS</span>
+                <span class="item-msg">Cluster Version &amp; API Server — OK</span>
+                
+              </li></ul>
+            
+          </div>
+        </details>
+        <details class="section-block status-border-pass" id="c1_s1">
+          <summary class="section-header">
+            <span class="badge badge-pass">✔ PASS</span>
+            <span class="section-name">Cluster Operators</span>
+            <span class="section-counts"><span class="cnt pass">1✔</span> <span class="cnt fail">0✘</span> <span class="cnt warn">0⚠</span></span>
+             <span class='dur'>5.0s</span>
+          </summary>
+          <div class="section-body">
+            <ul class="check-list">
+              <li class="check-item status-pass">
+                <span class="badge badge-pass">✔ PASS</span>
+                <span class="item-msg">Cluster Operators — OK</span>
+                
+              </li></ul>
+            
+          </div>
+        </details>
+        <details class="section-block status-border-pass" id="c1_s2">
+          <summary class="section-header">
+            <span class="badge badge-pass">✔ PASS</span>
+            <span class="section-name">Node Status</span>
+            <span class="section-counts"><span class="cnt pass">1✔</span> <span class="cnt fail">0✘</span> <span class="cnt warn">0⚠</span></span>
+             <span class='dur'>5.0s</span>
+          </summary>
+          <div class="section-body">
+            <ul class="check-list">
+              <li class="check-item status-pass">
+                <span class="badge badge-pass">✔ PASS</span>
+                <span class="item-msg">Node Status — OK</span>
+                
+              </li>
+              <li class="check-item status-info">
+                <span class="badge badge-info">ℹ INFO</span>
+                <span class="item-msg">Node roles — Masters: 3, Workers: 3</span>
+                
+              </li></ul>
+            
+          </div>
+        </details>
+        <details class="section-block status-border-pass" id="c1_s3">
+          <summary class="section-header">
+            <span class="badge badge-pass">✔ PASS</span>
+            <span class="section-name">Node Resource Pressure</span>
+            <span class="section-counts"><span class="cnt pass">1✔</span> <span class="cnt fail">0✘</span> <span class="cnt warn">0⚠</span></span>
+             <span class='dur'>5.0s</span>
+          </summary>
+          <div class="section-body">
+            <ul class="check-list">
+              <li class="check-item status-pass">
+                <span class="badge badge-pass">✔ PASS</span>
+                <span class="item-msg">Node Resource Pressure — OK</span>
+                
+              </li></ul>
+            
+          </div>
+        </details>
+        <details class="section-block status-border-pass" id="c1_s4">
+          <summary class="section-header">
+            <span class="badge badge-pass">✔ PASS</span>
+            <span class="section-name">etcd Health</span>
+            <span class="section-counts"><span class="cnt pass">1✔</span> <span class="cnt fail">0✘</span> <span class="cnt warn">0⚠</span></span>
+             <span class='dur'>5.0s</span>
+          </summary>
+          <div class="section-body">
+            <ul class="check-list">
+              <li class="check-item status-pass">
+                <span class="badge badge-pass">✔ PASS</span>
+                <span class="item-msg">etcd Health — OK</span>
+                
+              </li></ul>
+            
+          </div>
+        </details>
+        <details class="section-block status-border-pass" id="c1_s5">
+          <summary class="section-header">
+            <span class="badge badge-pass">✔ PASS</span>
+            <span class="section-name">Control-Plane Critical Pods</span>
+            <span class="section-counts"><span class="cnt pass">1✔</span> <span class="cnt fail">0✘</span> <span class="cnt warn">0⚠</span></span>
+             <span class='dur'>5.0s</span>
+          </summary>
+          <div class="section-body">
+            <ul class="check-list">
+              <li class="check-item status-pass">
+                <span class="badge badge-pass">✔ PASS</span>
+                <span class="item-msg">Control-Plane Critical Pods — OK</span>
+                
+              </li></ul>
+            
+          </div>
+        </details>
+        <details class="section-block status-border-pass" id="c1_s6">
+          <summary class="section-header">
+            <span class="badge badge-pass">✔ PASS</span>
+            <span class="section-name">Ceph / ODF Storage</span>
+            <span class="section-counts"><span class="cnt pass">1✔</span> <span class="cnt fail">0✘</span> <span class="cnt warn">0⚠</span></span>
+             <span class='dur'>5.0s</span>
+          </summary>
+          <div class="section-body">
+            <ul class="check-list">
+              <li class="check-item status-pass">
+                <span class="badge badge-pass">✔ PASS</span>
+                <span class="item-msg">Ceph / ODF Storage — OK</span>
+                
+              </li></ul>
+            
+          </div>
+        </details>
+        <details class="section-block status-border-pass" id="c1_s7">
+          <summary class="section-header">
+            <span class="badge badge-pass">✔ PASS</span>
+            <span class="section-name">Persistent Volume Claims</span>
+            <span class="section-counts"><span class="cnt pass">1✔</span> <span class="cnt fail">0✘</span> <span class="cnt warn">0⚠</span></span>
+             <span class='dur'>5.0s</span>
+          </summary>
+          <div class="section-body">
+            <ul class="check-list">
+              <li class="check-item status-pass">
+                <span class="badge badge-pass">✔ PASS</span>
+                <span class="item-msg">Persistent Volume Claims — OK</span>
+                
+              </li></ul>
+            
+          </div>
+        </details>
+        <details class="section-block status-border-pass" id="c1_s8">
+          <summary class="section-header">
+            <span class="badge badge-pass">✔ PASS</span>
+            <span class="section-name">Cluster-Wide Pod Audit</span>
+            <span class="section-counts"><span class="cnt pass">1✔</span> <span class="cnt fail">0✘</span> <span class="cnt warn">0⚠</span></span>
+             <span class='dur'>5.0s</span>
+          </summary>
+          <div class="section-body">
+            <ul class="check-list">
+              <li class="check-item status-pass">
+                <span class="badge badge-pass">✔ PASS</span>
+                <span class="item-msg">Cluster-Wide Pod Audit — OK</span>
+                
+              </li>
+              <li class="check-item status-info">
+                <span class="badge badge-info">ℹ INFO</span>
+                <span class="item-msg">Total pods scanned: 186</span>
+                
+              </li></ul>
+            
+          </div>
+        </details>
+        <details class="section-block status-border-pass" id="c1_s9">
+          <summary class="section-header">
+            <span class="badge badge-pass">✔ PASS</span>
+            <span class="section-name">Cluster Warning Events</span>
+            <span class="section-counts"><span class="cnt pass">2✔</span> <span class="cnt fail">0✘</span> <span class="cnt warn">0⚠</span></span>
+             <span class='dur'>5.0s</span>
+          </summary>
+          <div class="section-body">
+            <ul class="check-list">
+              <li class="check-item status-pass">
+                <span class="badge badge-pass">✔ PASS</span>
+                <span class="item-msg">Cluster Warning Events — OK</span>
+                
+              </li>
+              <li class="check-item status-pass">
+                <span class="badge badge-pass">✔ PASS</span>
+                <span class="item-msg">No Warning events found across all namespaces</span>
+                
+              </li></ul>
+            
+          </div>
+        </details>
+        <details class="section-block status-border-pass" id="c1_s10">
+          <summary class="section-header">
+            <span class="badge badge-pass">✔ PASS</span>
+            <span class="section-name">API Server Certificate Expiry</span>
+            <span class="section-counts"><span class="cnt pass">1✔</span> <span class="cnt fail">0✘</span> <span class="cnt warn">0⚠</span></span>
+             <span class='dur'>5.0s</span>
+          </summary>
+          <div class="section-body">
+            <ul class="check-list">
+              <li class="check-item status-pass">
+                <span class="badge badge-pass">✔ PASS</span>
+                <span class="item-msg">API Server Certificate Expiry — OK</span>
+                
+              </li></ul>
+            
+          </div>
+        </details>
+        <details class="section-block status-border-pass" id="c1_s11">
+          <summary class="section-header">
+            <span class="badge badge-pass">✔ PASS</span>
+            <span class="section-name">MachineConfigPool Status</span>
+            <span class="section-counts"><span class="cnt pass">1✔</span> <span class="cnt fail">0✘</span> <span class="cnt warn">0⚠</span></span>
+             <span class='dur'>5.0s</span>
+          </summary>
+          <div class="section-body">
+            <ul class="check-list">
+              <li class="check-item status-pass">
+                <span class="badge badge-pass">✔ PASS</span>
+                <span class="item-msg">MachineConfigPool Status — OK</span>
+                
+              </li></ul>
+            
+          </div>
+        </details>
+        <details class="section-block status-border-pass" id="c1_s12">
+          <summary class="section-header">
+            <span class="badge badge-pass">✔ PASS</span>
+            <span class="section-name">Prometheus Firing Alerts</span>
+            <span class="section-counts"><span class="cnt pass">2✔</span> <span class="cnt fail">0✘</span> <span class="cnt warn">0⚠</span></span>
+             <span class='dur'>5.0s</span>
+          </summary>
+          <div class="section-body">
+            <ul class="check-list">
+              <li class="check-item status-pass">
+                <span class="badge badge-pass">✔ PASS</span>
+                <span class="item-msg">Prometheus Firing Alerts — OK</span>
+                
+              </li>
+              <li class="check-item status-pass">
+                <span class="badge badge-pass">✔ PASS</span>
+                <span class="item-msg">No critical alerts firing</span>
+                
+              </li></ul>
+            
+          </div>
+        </details>
+        <details class="section-block status-border-pass" id="c1_s13">
+          <summary class="section-header">
+            <span class="badge badge-pass">✔ PASS</span>
+            <span class="section-name">Host: master-01</span>
+            <span class="section-counts"><span class="cnt pass">8✔</span> <span class="cnt fail">0✘</span> <span class="cnt warn">0⚠</span></span>
+             <span class='dur'>10.0s</span>
+          </summary>
+          <div class="section-body">
+            <ul class="check-list">
+              <li class="check-item status-pass">
+                <span class="badge badge-pass">✔ PASS</span>
+                <span class="item-msg">Uptime OK — load/CPU ratio: 0.12</span>
+                <code class="cmd-label">$ uptime</code>
+              </li>
+              <li class="check-item status-pass">
+                <span class="badge badge-pass">✔ PASS</span>
+                <span class="item-msg">All disk mounts below 80%</span>
+                <code class="cmd-label">$ df -h</code>
+              </li>
+              <li class="check-item status-pass">
+                <span class="badge badge-pass">✔ PASS</span>
+                <span class="item-msg">No uncorrectable ECC errors found</span>
+                
+              </li>
+              <li class="check-item status-pass">
+                <span class="badge badge-pass">✔ PASS</span>
+                <span class="item-msg">Memory: 64G total, 28G used, 34G available</span>
+                
+              </li>
+              <li class="check-item status-pass">
+                <span class="badge badge-pass">✔ PASS</span>
+                <span class="item-msg">No OOM kill events in recent logs</span>
+                
+              </li>
+              <li class="check-item status-pass">
+                <span class="badge badge-pass">✔ PASS</span>
+                <span class="item-msg">All network interfaces are UP</span>
+                
+              </li>
+              <li class="check-item status-pass">
+                <span class="badge badge-pass">✔ PASS</span>
+                <span class="item-msg">No failed systemd services</span>
+                
+              </li>
+              <li class="check-item status-pass">
+                <span class="badge badge-pass">✔ PASS</span>
+                <span class="item-msg">NTP synchronized</span>
+                
+              </li></ul>
+            
+          </div>
+        </details>
+        <details class="section-block status-border-pass" id="c1_s14">
+          <summary class="section-header">
+            <span class="badge badge-pass">✔ PASS</span>
+            <span class="section-name">Host: worker-01</span>
+            <span class="section-counts"><span class="cnt pass">8✔</span> <span class="cnt fail">0✘</span> <span class="cnt warn">0⚠</span></span>
+             <span class='dur'>10.0s</span>
+          </summary>
+          <div class="section-body">
+            <ul class="check-list">
+              <li class="check-item status-pass">
+                <span class="badge badge-pass">✔ PASS</span>
+                <span class="item-msg">Uptime OK — load/CPU ratio: 0.12</span>
+                <code class="cmd-label">$ uptime</code>
+              </li>
+              <li class="check-item status-pass">
+                <span class="badge badge-pass">✔ PASS</span>
+                <span class="item-msg">All disk mounts below 80%</span>
+                <code class="cmd-label">$ df -h</code>
+              </li>
+              <li class="check-item status-pass">
+                <span class="badge badge-pass">✔ PASS</span>
+                <span class="item-msg">No uncorrectable ECC errors found</span>
+                
+              </li>
+              <li class="check-item status-pass">
+                <span class="badge badge-pass">✔ PASS</span>
+                <span class="item-msg">Memory: 64G total, 28G used, 34G available</span>
+                
+              </li>
+              <li class="check-item status-pass">
+                <span class="badge badge-pass">✔ PASS</span>
+                <span class="item-msg">No OOM kill events in recent logs</span>
+                
+              </li>
+              <li class="check-item status-pass">
+                <span class="badge badge-pass">✔ PASS</span>
+                <span class="item-msg">All network interfaces are UP</span>
+                
+              </li>
+              <li class="check-item status-pass">
+                <span class="badge badge-pass">✔ PASS</span>
+                <span class="item-msg">No failed systemd services</span>
+                
+              </li>
+              <li class="check-item status-pass">
+                <span class="badge badge-pass">✔ PASS</span>
+                <span class="item-msg">NTP synchronized</span>
+                
+              </li></ul>
+            
+          </div>
+        </details>
+        <details class="section-block status-border-pass" id="c1_s15">
+          <summary class="section-header">
+            <span class="badge badge-pass">✔ PASS</span>
+            <span class="section-name">Host: worker-02</span>
+            <span class="section-counts"><span class="cnt pass">8✔</span> <span class="cnt fail">0✘</span> <span class="cnt warn">0⚠</span></span>
+             <span class='dur'>10.0s</span>
+          </summary>
+          <div class="section-body">
+            <ul class="check-list">
+              <li class="check-item status-pass">
+                <span class="badge badge-pass">✔ PASS</span>
+                <span class="item-msg">Uptime OK — load/CPU ratio: 0.12</span>
+                <code class="cmd-label">$ uptime</code>
+              </li>
+              <li class="check-item status-pass">
+                <span class="badge badge-pass">✔ PASS</span>
+                <span class="item-msg">All disk mounts below 80%</span>
+                <code class="cmd-label">$ df -h</code>
+              </li>
+              <li class="check-item status-pass">
+                <span class="badge badge-pass">✔ PASS</span>
+                <span class="item-msg">No uncorrectable ECC errors found</span>
+                
+              </li>
+              <li class="check-item status-pass">
+                <span class="badge badge-pass">✔ PASS</span>
+                <span class="item-msg">Memory: 64G total, 28G used, 34G available</span>
+                
+              </li>
+              <li class="check-item status-pass">
+                <span class="badge badge-pass">✔ PASS</span>
+                <span class="item-msg">No OOM kill events in recent logs</span>
+                
+              </li>
+              <li class="check-item status-pass">
+                <span class="badge badge-pass">✔ PASS</span>
+                <span class="item-msg">All network interfaces are UP</span>
+                
+              </li>
+              <li class="check-item status-pass">
+                <span class="badge badge-pass">✔ PASS</span>
+                <span class="item-msg">No failed systemd services</span>
+                
+              </li>
+              <li class="check-item status-pass">
+                <span class="badge badge-pass">✔ PASS</span>
+                <span class="item-msg">NTP synchronized</span>
+                
+              </li></ul>
+            
+          </div>
+        </details>
+        </div>
+      </details>
+      <details class="cluster-block" id="cluster_2" open>
+        <summary class="cluster-header status-fail">
+          <span class="badge badge-fail">✘ FAIL</span>
+          <span class="cluster-name">prod-cvim-site-A</span>
+          <span class="cluster-type badge-type">CVIM</span>
+          <span class="cluster-counts"><span class="cnt pass">35✔</span> <span class="cnt fail">5✘</span> <span class="cnt warn">3⚠</span></span>
+          <span class="dur">65s</span>
+          <span class="cluster-ts">2026-04-23 02:15:03</span>
+        </summary>
+        <div class="cluster-body">
+          
+        <details class="section-block status-border-fail" id="c2_s0">
+          <summary class="section-header">
+            <span class="badge badge-fail">✘ FAIL</span>
+            <span class="section-name">Hypervisor Status</span>
+            <span class="section-counts"><span class="cnt pass">0✔</span> <span class="cnt fail">1✘</span> <span class="cnt warn">0⚠</span></span>
+             <span class='dur'>4.0s</span>
+          </summary>
+          <div class="section-body">
+            <ul class="check-list">
+              <li class="check-item status-fail">
+                <span class="badge badge-fail">✘ FAIL</span>
+                <span class="item-msg">Hypervisors UP: 11/12</span>
+                <pre class="item-detail">One or more compute nodes may be down</pre>
+              </li>
+              <li class="check-item status-info">
+                <span class="badge badge-info">ℹ INFO</span>
+                <span class="item-msg">Hypervisor list</span>
+                <pre class="item-detail">| ID | Hypervisor Hostname        | Type | State | Status |
+| 1  | compute-01.example.com     | QEMU | up    | enabled|
+| 2  | compute-02.example.com     | QEMU | up    | enabled|
+| 12 | compute-12.example.com     | QEMU | down  | enabled|</pre>
+              </li></ul>
+            
+          </div>
+        </details>
+        <details class="section-block status-border-pass" id="c2_s1">
+          <summary class="section-header">
+            <span class="badge badge-pass">✔ PASS</span>
+            <span class="section-name">Network Agents</span>
+            <span class="section-counts"><span class="cnt pass">1✔</span> <span class="cnt fail">0✘</span> <span class="cnt warn">0⚠</span></span>
+             <span class='dur'>3.0s</span>
+          </summary>
+          <div class="section-body">
+            <ul class="check-list">
+              <li class="check-item status-pass">
+                <span class="badge badge-pass">✔ PASS</span>
+                <span class="item-msg">Network Agents UP: 34/34</span>
+                
+              </li></ul>
+            
+          </div>
+        </details>
+        <details class="section-block status-border-pass" id="c2_s2">
+          <summary class="section-header">
+            <span class="badge badge-pass">✔ PASS</span>
+            <span class="section-name">Volume Services (Cinder/Ceph)</span>
+            <span class="section-counts"><span class="cnt pass">1✔</span> <span class="cnt fail">0✘</span> <span class="cnt warn">0⚠</span></span>
+             <span class='dur'>3.0s</span>
+          </summary>
+          <div class="section-body">
+            <ul class="check-list">
+              <li class="check-item status-pass">
+                <span class="badge badge-pass">✔ PASS</span>
+                <span class="item-msg">Volume Services UP: 4/4</span>
+                
+              </li></ul>
+            
+          </div>
+        </details>
+        <details class="section-block status-border-pass" id="c2_s3">
+          <summary class="section-header">
+            <span class="badge badge-pass">✔ PASS</span>
+            <span class="section-name">Cloudpulse Health</span>
+            <span class="section-counts"><span class="cnt pass">1✔</span> <span class="cnt fail">0✘</span> <span class="cnt warn">0⚠</span></span>
+             <span class='dur'>4.0s</span>
+          </summary>
+          <div class="section-body">
+            <ul class="check-list">
+              <li class="check-item status-pass">
+                <span class="badge badge-pass">✔ PASS</span>
+                <span class="item-msg">Cloudpulse: all results OK or still running</span>
+                
+              </li></ul>
+            
+          </div>
+        </details>
+        <details class="section-block status-border-warn" id="c2_s4">
+          <summary class="section-header">
+            <span class="badge badge-warn">⚠ WARN</span>
+            <span class="section-name">VM (Nova) Status</span>
+            <span class="section-counts"><span class="cnt pass">0✔</span> <span class="cnt fail">0✘</span> <span class="cnt warn">1⚠</span></span>
+             <span class='dur'>15.0s</span>
+          </summary>
+          <div class="section-body">
+            <ul class="check-list">
+              <li class="check-item status-info">
+                <span class="badge badge-info">ℹ INFO</span>
+                <span class="item-msg">VMs — Total: 247, Active: 245, Non-active: 2</span>
+                
+              </li>
+              <li class="check-item status-warn">
+                <span class="badge badge-warn">⚠ WARN</span>
+                <span class="item-msg">2 VM(s) not in ACTIVE state</span>
+                <pre class="item-detail">vm-prod-db-replica-03   ERROR    compute-12   e8f2a1b3-...
+vm-prod-cache-07        SHUTOFF  compute-12   d7c9e4f2-...</pre>
+              </li></ul>
+            
+          </div>
+        </details>
+        <details class="section-block status-border-pass" id="c2_s5">
+          <summary class="section-header">
+            <span class="badge badge-pass">✔ PASS</span>
+            <span class="section-name">RabbitMQ Health</span>
+            <span class="section-counts"><span class="cnt pass">1✔</span> <span class="cnt fail">0✘</span> <span class="cnt warn">0⚠</span></span>
+             <span class='dur'>3.0s</span>
+          </summary>
+          <div class="section-body">
+            <ul class="check-list">
+              <li class="check-item status-pass">
+                <span class="badge badge-pass">✔ PASS</span>
+                <span class="item-msg">RabbitMQ: 18 checks passed</span>
+                
+              </li></ul>
+            
+          </div>
+        </details>
+        <details class="section-block status-border-fail" id="c2_s6">
+          <summary class="section-header">
+            <span class="badge badge-fail">✘ FAIL</span>
+            <span class="section-name">Container (Podman/Docker) Status on Nodes</span>
+            <span class="section-counts"><span class="cnt pass">14✔</span> <span class="cnt fail">1✘</span> <span class="cnt warn">0⚠</span></span>
+             <span class='dur'>12.0s</span>
+          </summary>
+          <div class="section-body">
+            <ul class="check-list">
+              <li class="check-item status-pass">
+                <span class="badge badge-pass">✔ PASS</span>
+                <span class="item-msg">ctrl-node-01 (control): 24/24 containers running</span>
+                
+              </li>
+              <li class="check-item status-pass">
+                <span class="badge badge-pass">✔ PASS</span>
+                <span class="item-msg">ctrl-node-02 (control): 24/24 containers running</span>
+                
+              </li>
+              <li class="check-item status-pass">
+                <span class="badge badge-pass">✔ PASS</span>
+                <span class="item-msg">ctrl-node-03 (control): 24/24 containers running</span>
+                
+              </li>
+              <li class="check-item status-fail">
+                <span class="badge badge-fail">✘ FAIL</span>
+                <span class="item-msg">compute-12 (compute): 3/8 containers running</span>
+                <pre class="item-detail">nova_compute, neutron_linuxbridge_agent, libvirt containers appear stopped</pre>
+              </li>
+              <li class="check-item status-pass">
+                <span class="badge badge-pass">✔ PASS</span>
+                <span class="item-msg">compute-01 (compute): 8/8 containers running</span>
+                
+              </li>
+              <li class="check-item status-pass">
+                <span class="badge badge-pass">✔ PASS</span>
+                <span class="item-msg">compute-02 (compute): 8/8 containers running</span>
+                
+              </li>
+              <li class="check-item status-pass">
+                <span class="badge badge-pass">✔ PASS</span>
+                <span class="item-msg">compute-03 (compute): 8/8 containers running</span>
+                
+              </li>
+              <li class="check-item status-pass">
+                <span class="badge badge-pass">✔ PASS</span>
+                <span class="item-msg">compute-04 (compute): 8/8 containers running</span>
+                
+              </li>
+              <li class="check-item status-pass">
+                <span class="badge badge-pass">✔ PASS</span>
+                <span class="item-msg">compute-05 (compute): 8/8 containers running</span>
+                
+              </li>
+              <li class="check-item status-pass">
+                <span class="badge badge-pass">✔ PASS</span>
+                <span class="item-msg">compute-06 (compute): 8/8 containers running</span>
+                
+              </li>
+              <li class="check-item status-pass">
+                <span class="badge badge-pass">✔ PASS</span>
+                <span class="item-msg">compute-07 (compute): 8/8 containers running</span>
+                
+              </li>
+              <li class="check-item status-pass">
+                <span class="badge badge-pass">✔ PASS</span>
+                <span class="item-msg">compute-08 (compute): 8/8 containers running</span>
+                
+              </li>
+              <li class="check-item status-pass">
+                <span class="badge badge-pass">✔ PASS</span>
+                <span class="item-msg">compute-09 (compute): 8/8 containers running</span>
+                
+              </li>
+              <li class="check-item status-pass">
+                <span class="badge badge-pass">✔ PASS</span>
+                <span class="item-msg">compute-10 (compute): 8/8 containers running</span>
+                
+              </li>
+              <li class="check-item status-pass">
+                <span class="badge badge-pass">✔ PASS</span>
+                <span class="item-msg">compute-11 (compute): 8/8 containers running</span>
+                
+              </li></ul>
+            
+          </div>
+        </details>
+        <details class="section-block status-border-pass" id="c2_s7">
+          <summary class="section-header">
+            <span class="badge badge-pass">✔ PASS</span>
+            <span class="section-name">Ceph Storage Status</span>
+            <span class="section-counts"><span class="cnt pass">2✔</span> <span class="cnt fail">0✘</span> <span class="cnt warn">0⚠</span></span>
+             <span class='dur'>5.0s</span>
+          </summary>
+          <div class="section-body">
+            <ul class="check-list">
+              <li class="check-item status-pass">
+                <span class="badge badge-pass">✔ PASS</span>
+                <span class="item-msg">Ceph cluster health: HEALTH_OK</span>
+                
+              </li>
+              <li class="check-item status-info">
+                <span class="badge badge-info">ℹ INFO</span>
+                <span class="item-msg">health: HEALTH_OK</span>
+                
+              </li>
+              <li class="check-item status-info">
+                <span class="badge badge-info">ℹ INFO</span>
+                <span class="item-msg">osd: 36 osds: 36 up, 36 in</span>
+                
+              </li>
+              <li class="check-item status-info">
+                <span class="badge badge-info">ℹ INFO</span>
+                <span class="item-msg">usage: 42 TiB used, 188 TiB / 230 TiB avail</span>
+                
+              </li>
+              <li class="check-item status-pass">
+                <span class="badge badge-pass">✔ PASS</span>
+                <span class="item-msg">All OSDs appear UP in OSD tree</span>
+                
+              </li></ul>
+            
+          </div>
+        </details>
+        <details class="section-block status-border-pass" id="c2_s8">
+          <summary class="section-header">
+            <span class="badge badge-pass">✔ PASS</span>
+            <span class="section-name">Host: ctrl-node-01</span>
+            <span class="section-counts"><span class="cnt pass">7✔</span> <span class="cnt fail">0✘</span> <span class="cnt warn">0⚠</span></span>
+             <span class='dur'>9.0s</span>
+          </summary>
+          <div class="section-body">
+            <ul class="check-list">
+              <li class="check-item status-pass">
+                <span class="badge badge-pass">✔ PASS</span>
+                <span class="item-msg">Uptime OK — load/CPU ratio: 0.43</span>
+                <code class="cmd-label">$ uptime</code>
+              </li>
+              <li class="check-item status-pass">
+                <span class="badge badge-pass">✔ PASS</span>
+                <span class="item-msg">All disk mounts below 75%</span>
+                
+              </li>
+              <li class="check-item status-pass">
+                <span class="badge badge-pass">✔ PASS</span>
+                <span class="item-msg">No uncorrectable ECC errors found</span>
+                
+              </li>
+              <li class="check-item status-pass">
+                <span class="badge badge-pass">✔ PASS</span>
+                <span class="item-msg">All network interfaces are UP</span>
+                
+              </li>
+              <li class="check-item status-pass">
+                <span class="badge badge-pass">✔ PASS</span>
+                <span class="item-msg">2 bond interface(s) — all slaves UP</span>
+                
+              </li>
+              <li class="check-item status-pass">
+                <span class="badge badge-pass">✔ PASS</span>
+                <span class="item-msg">No failed systemd services</span>
+                
+              </li>
+              <li class="check-item status-pass">
+                <span class="badge badge-pass">✔ PASS</span>
+                <span class="item-msg">NTP synchronized</span>
+                
+              </li></ul>
+            
+          </div>
+        </details>
+        <details class="section-block status-border-pass" id="c2_s9">
+          <summary class="section-header">
+            <span class="badge badge-pass">✔ PASS</span>
+            <span class="section-name">Host: compute-01</span>
+            <span class="section-counts"><span class="cnt pass">7✔</span> <span class="cnt fail">0✘</span> <span class="cnt warn">0⚠</span></span>
+             <span class='dur'>9.0s</span>
+          </summary>
+          <div class="section-body">
+            <ul class="check-list">
+              <li class="check-item status-pass">
+                <span class="badge badge-pass">✔ PASS</span>
+                <span class="item-msg">Uptime OK — load/CPU ratio: 0.43</span>
+                <code class="cmd-label">$ uptime</code>
+              </li>
+              <li class="check-item status-pass">
+                <span class="badge badge-pass">✔ PASS</span>
+                <span class="item-msg">All disk mounts below 75%</span>
+                
+              </li>
+              <li class="check-item status-pass">
+                <span class="badge badge-pass">✔ PASS</span>
+                <span class="item-msg">No uncorrectable ECC errors found</span>
+                
+              </li>
+              <li class="check-item status-pass">
+                <span class="badge badge-pass">✔ PASS</span>
+                <span class="item-msg">All network interfaces are UP</span>
+                
+              </li>
+              <li class="check-item status-pass">
+                <span class="badge badge-pass">✔ PASS</span>
+                <span class="item-msg">2 bond interface(s) — all slaves UP</span>
+                
+              </li>
+              <li class="check-item status-pass">
+                <span class="badge badge-pass">✔ PASS</span>
+                <span class="item-msg">No failed systemd services</span>
+                
+              </li>
+              <li class="check-item status-pass">
+                <span class="badge badge-pass">✔ PASS</span>
+                <span class="item-msg">NTP synchronized</span>
+                
+              </li></ul>
+            
+          </div>
+        </details>
+        <details class="section-block status-border-fail" id="c2_s10">
+          <summary class="section-header">
+            <span class="badge badge-fail">✘ FAIL</span>
+            <span class="section-name">Host: compute-12</span>
+            <span class="section-counts"><span class="cnt pass">1✔</span> <span class="cnt fail">3✘</span> <span class="cnt warn">2⚠</span></span>
+             <span class='dur'>9.0s</span>
+          </summary>
+          <div class="section-body">
+            <ul class="check-list">
+              <li class="check-item status-pass">
+                <span class="badge badge-pass">✔ PASS</span>
+                <span class="item-msg">Uptime OK — load/CPU ratio: 0.43</span>
+                <code class="cmd-label">$ uptime</code>
+              </li>
+              <li class="check-item status-fail">
+                <span class="badge badge-fail">✘ FAIL</span>
+                <span class="item-msg">Disk /var at 91% (threshold: 75%)</span>
+                <code class="cmd-label">$ df -h</code>
+              </li>
+              <li class="check-item status-fail">
+                <span class="badge badge-fail">✘ FAIL</span>
+                <span class="item-msg">Uncorrectable ECC error: /sys/devices/system/edac/mc/mc0/ue_count: 2</span>
+                
+              </li>
+              <li class="check-item status-warn">
+                <span class="badge badge-warn">⚠ WARN</span>
+                <span class="item-msg">Hardware/MCE messages in dmesg</span>
+                <pre class="item-detail">[Thu Jan 11 03:22:41 2024] mce: [Hardware Error]: Machine check events logged
+[Thu Jan 11 03:22:41 2024] EDAC MC0: 2 UE scrub on unknown memory (...)  DIMM slot A1</pre>
+              </li>
+              <li class="check-item status-fail">
+                <span class="badge badge-fail">✘ FAIL</span>
+                <span class="item-msg">2 failed systemd service(s)</span>
+                <pre class="item-detail">nova-compute.service   failed
+libvirtd.service       failed</pre>
+              </li>
+              <li class="check-item status-warn">
+                <span class="badge badge-warn">⚠ WARN</span>
+                <span class="item-msg">NTP not synchronized</span>
+                <pre class="item-detail">NTP service inactive</pre>
+              </li></ul>
+            
+          </div>
+        </details>
+        </div>
+      </details>
+      <details class="cluster-block status-error" id="cluster_3">
+        <summary class="cluster-header">
+          <span class="badge badge-fail">✘ ERROR</span>
+          <span class="cluster-name">prod-cvim-site-B</span>
+          <span class="cluster-type">CVIM</span>
+          <span class="cluster-error">Login failed: SSH connection timeout after 30s (host unreachable: 172.16.50.10)</span>
+        </summary>
+      </details>
+  </div>
+</div>
+
+<script>
+  function filterClusters(mode, btn) {
+    document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    document.querySelectorAll('.cluster-block').forEach(block => {
+      if (mode === 'all') { block.style.display = ''; return; }
+      const hasFail = block.querySelector('.badge-fail') !== null;
+      const hasWarn = block.querySelector('.badge-warn') !== null;
+      if (mode === 'fail') block.style.display = hasFail ? '' : 'none';
+      if (mode === 'warn') block.style.display = (hasFail || hasWarn) ? '' : 'none';
+    });
+  }
+
+  function expandAll() {
+    document.querySelectorAll('details').forEach(d => d.open = true);
+  }
+
+  function collapseAll() {
+    document.querySelectorAll('details').forEach(d => d.open = false);
+  }
+
+  function searchItems(query) {
+    const q = query.toLowerCase();
+    document.querySelectorAll('.cluster-block').forEach(block => {
+      const text = block.textContent.toLowerCase();
+      block.style.display = (!q || text.includes(q)) ? '' : 'none';
+      if (q) block.open = true;
+    });
+  }
+</script>
+</body>
+</html>

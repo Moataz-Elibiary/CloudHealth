@@ -1,0 +1,563 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>CloudHealth — Welcome</title>
+<meta name="description" content="CloudHealth — Cloud Health Check Tool Control Center">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+:root {
+    --primary: #00bcff; --primary-glow: rgba(0,188,255,0.25);
+    --success: #10b981; --danger: #ef4444; --warning: #f59e0b;
+    --bg: #002e47; --bg-alt: #004266;
+    --card: rgba(0,50,80,0.75);
+    --text: #f8fafc; --text-dim: #cbd5e1; --text-muted: #94a3b8;
+    --border: rgba(255,255,255,0.1); --border-h: rgba(255,255,255,0.2);
+    --input-bg: rgba(255,255,255,0.05);
+}
+*{margin:0;padding:0;box-sizing:border-box}
+body{
+    font-family:'Inter',sans-serif; background:var(--bg); color:var(--text);
+    min-height:100vh; line-height:1.6;
+    background-image:
+        radial-gradient(circle at 15% 15%, rgba(0,188,255,0.12) 0%, transparent 45%),
+        radial-gradient(circle at 85% 85%, rgba(0,188,255,0.08) 0%, transparent 45%);
+}
+.container{max-width:1100px;margin:0 auto;padding:2rem 2rem 4rem}
+
+/* ── Glass ── */
+.glass{
+    background:var(--card); backdrop-filter:blur(20px); -webkit-backdrop-filter:blur(20px);
+    border:1px solid var(--border); border-radius:1.5rem;
+    transition:border-color 0.3s;
+}
+.glass:hover{border-color:var(--border-h)}
+
+/* ── Header ── */
+.header{text-align:center;padding:3rem 2rem 2rem}
+.header h1{
+    font-size:2.8rem;font-weight:800;letter-spacing:-0.03em;
+    background:linear-gradient(135deg,#ffffff,#00bcff,#ffffff);
+    -webkit-background-clip:text;-webkit-text-fill-color:transparent;
+}
+.header .version{
+    display:inline-block;padding:0.2rem 0.7rem;border-radius:9999px;
+    background:var(--primary-glow);color:#00bcff;font-size:0.7rem;
+    font-weight:600;letter-spacing:0.06em;margin-left:0.5rem;vertical-align:super;
+}
+.header p{color:var(--text-dim);margin-top:0.5rem;font-size:1.1rem}
+
+/* ── Tabs ── */
+.tabs{display:flex;gap:0;margin:2rem 2rem 0;border-bottom:1px solid var(--border)}
+.tab{
+    padding:0.75rem 1.5rem;cursor:pointer;font-weight:600;font-size:0.9rem;
+    color:var(--text-muted);border-bottom:2px solid transparent;
+    transition:all 0.3s;user-select:none;
+}
+.tab:hover{color:var(--text)}
+.tab.active{color:var(--primary);border-bottom-color:var(--primary)}
+
+/* ── Tab Content ── */
+.tab-panel{display:none;padding:2rem}
+.tab-panel.active{display:block}
+
+/* ── Config Grid ── */
+.config-grid{
+    display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));
+    gap:1.25rem;
+}
+.config-field{display:flex;flex-direction:column;gap:0.4rem}
+.config-field label{
+    font-size:0.78rem;font-weight:600;color:var(--text-dim);
+    text-transform:uppercase;letter-spacing:0.06em;
+}
+.config-field input,.config-field select{
+    padding:0.65rem 1rem;border-radius:0.75rem;border:1px solid var(--border);
+    background:var(--input-bg);color:var(--text);font-size:0.9rem;
+    font-family:'JetBrains Mono',monospace;outline:none;transition:all 0.3s;
+}
+.config-field input:focus{border-color:var(--primary);box-shadow:0 0 0 3px var(--primary-glow)}
+.save-indicator{
+    font-size:0.75rem;color:var(--success);opacity:0;transition:opacity 0.3s;
+    margin-left:0.5rem;
+}
+.save-indicator.show{opacity:1}
+
+/* ── Checks Section ── */
+.check-group{margin-bottom:1.5rem}
+.check-group-header{
+    display:flex;align-items:center;justify-content:space-between;
+    padding:1rem 1.25rem;cursor:pointer;border-radius:1rem;
+    background:rgba(255,255,255,0.02);border:1px solid var(--border);
+    transition:all 0.3s;user-select:none;
+}
+.check-group-header:hover{background:rgba(255,255,255,0.04);border-color:var(--border-h)}
+.check-group-title{font-weight:700;font-size:0.95rem;display:flex;align-items:center;gap:0.75rem}
+.check-group-title .icon{
+    width:28px;height:28px;border-radius:0.5rem;display:flex;align-items:center;
+    justify-content:center;font-size:0.85rem;
+}
+.ocp-icon{background:rgba(0,188,255,0.15);color:#00bcff}
+.cvim-icon{background:rgba(255,255,255,0.1);color:#ffffff}
+.host-icon{background:rgba(16,185,129,0.15);color:#34d399}
+
+.check-group-actions{display:flex;gap:0.75rem;align-items:center}
+.select-link{
+    font-size:0.75rem;color:var(--primary);cursor:pointer;font-weight:600;
+    opacity:0.7;transition:opacity 0.2s;
+}
+.select-link:hover{opacity:1;text-decoration:underline}
+.chevron{
+    transition:transform 0.3s;font-size:0.8rem;color:var(--text-muted);
+    margin-left:0.5rem;
+}
+.check-group.open .chevron{transform:rotate(180deg)}
+
+.check-items{
+    max-height:0;overflow:hidden;transition:max-height 0.4s ease;
+    padding:0 1.25rem;
+}
+.check-group.open .check-items{max-height:1500px;padding:0.75rem 1.25rem}
+
+.check-item{
+    display:flex;align-items:center;gap:0.75rem;
+    padding:0.5rem 0.75rem;border-radius:0.6rem;
+    transition:background 0.2s;cursor:pointer;
+}
+.check-item:hover{background:rgba(255,255,255,0.03)}
+.check-item input[type=checkbox]{
+    appearance:none;-webkit-appearance:none;width:18px;height:18px;
+    border:2px solid var(--text-muted);border-radius:5px;cursor:pointer;
+    position:relative;transition:all 0.2s;flex-shrink:0;
+}
+.check-item input[type=checkbox]:checked{
+    background:var(--primary);border-color:var(--primary);
+}
+.check-item input[type=checkbox]:checked::after{
+    content:'✓';position:absolute;top:-1px;left:2px;
+    color:white;font-size:12px;font-weight:800;
+}
+.check-item label{font-size:0.88rem;cursor:pointer;color:var(--text-dim)}
+.check-item input:checked + label{color:var(--text)}
+.counter{
+    font-size:0.7rem;padding:0.15rem 0.5rem;border-radius:9999px;
+    background:rgba(0,188,255,0.15);color:#00bcff;font-weight:600;
+}
+
+/* ── Run Section ── */
+.run-section{padding:2rem;text-align:center}
+.run-btn{
+    padding:1rem 3.5rem;border:none;border-radius:1rem;
+    font-size:1.1rem;font-weight:700;cursor:pointer;
+    background:linear-gradient(135deg,#00bcff,#004266);color:white;
+    box-shadow:0 10px 25px -5px var(--primary-glow);
+    transition:all 0.4s cubic-bezier(0.175,0.885,0.32,1.275);
+    display:inline-flex;align-items:center;gap:0.75rem;
+}
+.run-btn:hover{transform:translateY(-3px) scale(1.03);box-shadow:0 15px 35px -5px var(--primary-glow)}
+.run-btn:disabled{
+    background:#334155;transform:none;box-shadow:none;cursor:not-allowed;opacity:0.6;
+}
+.run-btn svg{width:20px;height:20px}
+
+/* ── Terminal ── */
+.terminal-wrapper{display:none;margin:2rem 2rem 0}
+.terminal{
+    background:rgba(0,0,0,0.5);border:1px solid var(--border);border-radius:1rem;
+    height:380px;overflow-y:auto;padding:1.25rem 1.5rem;
+    font-family:'JetBrains Mono',monospace;font-size:0.82rem;line-height:1.7;color:#cbd5e1;
+}
+.terminal::-webkit-scrollbar{width:6px}
+.terminal::-webkit-scrollbar-thumb{background:var(--border);border-radius:9999px}
+.log-line{opacity:0;animation:fadeSlide 0.25s ease forwards;margin-bottom:0.15rem}
+@keyframes fadeSlide{to{opacity:1;transform:translateY(0)}}
+.log-line{transform:translateY(4px)}
+.log-pass{color:#34d399}.log-fail{color:#f87171}.log-warn{color:#fbbf24}
+.log-info{color:#00bcff;font-weight:600}
+
+/* ── Results Banner ── */
+.results-banner{
+    display:none;margin:1.5rem 2rem 0;padding:1.5rem 2rem;border-radius:1rem;
+    background:rgba(16,185,129,0.08);border:1px solid rgba(16,185,129,0.2);
+    text-align:center;
+}
+.results-banner.has-failures{
+    background:rgba(239,68,68,0.08);border-color:rgba(239,68,68,0.2);
+}
+.results-stats{display:flex;justify-content:center;gap:2rem;margin:1rem 0}
+.stat{text-align:center}
+.stat-value{font-size:2rem;font-weight:800;display:block}
+.stat-label{font-size:0.7rem;text-transform:uppercase;letter-spacing:0.08em;color:var(--text-dim)}
+.report-btn{
+    display:inline-block;margin-top:1rem;padding:0.7rem 2rem;border-radius:0.75rem;
+    background:var(--primary);color:white;text-decoration:none;font-weight:600;
+    font-size:0.9rem;transition:all 0.3s;
+}
+.report-btn:hover{transform:translateY(-2px);box-shadow:0 8px 20px -5px var(--primary-glow)}
+
+/* ── Footer ── */
+.footer{text-align:center;padding:2rem;color:var(--text-muted);font-size:0.8rem}
+
+/* ── Responsive ── */
+@media(max-width:768px){
+    .container{padding:1rem}
+    .header h1{font-size:2rem}
+    .config-grid{grid-template-columns:1fr}
+    .tabs{overflow-x:auto}
+}
+</style>
+</head>
+<body>
+<div class="container">
+    <!-- Header -->
+    <div class="header">
+        <h1>CloudHealth <span class="version">BETA 2</span></h1>
+        <p>Cloud Health Check Tool</p>
+    </div>
+
+    <div class="glass" id="mainCard">
+        <!-- Tabs -->
+        <div class="tabs">
+            <div class="tab active" onclick="switchTab('checks',this)">Health Checks</div>
+            <div class="tab" onclick="switchTab('config',this)">Configuration</div>
+        </div>
+
+        <!-- ═══ TAB 1: Health Checks ═══ -->
+        <div class="tab-panel active" id="tab-checks">
+            <div id="checkGroups"></div>
+        </div>
+
+        <!-- ═══ TAB 2: Configuration ═══ -->
+        <div class="tab-panel" id="tab-config">
+            <div class="config-grid" id="configGrid"></div>
+            <div style="text-align:right;margin-top:1rem">
+                <span class="save-indicator" id="saveIndicator">✓ Saved to config.yaml</span>
+            </div>
+        </div>
+
+        <!-- Run Button -->
+        <div class="run-section">
+            <button class="run-btn" id="runBtn" onclick="startRun()">
+                <svg viewBox="0 0 20 20" fill="currentColor">
+                    <path d="M4.5 2.691a.75.75 0 0 1 1.082-.67l10.5 5.809a.75.75 0 0 1 0 1.34l-10.5 5.809a.75.75 0 0 1-1.082-.67V2.691Z"/>
+                </svg>
+                Run Health Check
+            </button>
+        </div>
+
+        <!-- Terminal Output -->
+        <div class="terminal-wrapper" id="terminalWrapper">
+            <div class="terminal" id="terminal"></div>
+        </div>
+
+        <!-- Results Banner -->
+        <div class="results-banner" id="resultsBanner">
+            <div style="font-size:1.3rem;font-weight:700" id="resultsTitle">Diagnostics Complete</div>
+            <div class="results-stats" id="resultsStats"></div>
+            <a class="report-btn" id="reportBtn" href="#" target="_blank">Open Full Report →</a>
+        </div>
+    </div>
+
+    <div class="footer">&copy; 2026 CloudHealth Beta 2</div>
+</div>
+
+<script>
+// ══════════════════════════════════════════════════════════════════════════════
+//  STATE
+// ══════════════════════════════════════════════════════════════════════════════
+let checkCategories = {};
+let configData = {};
+let saveTimeout = null;
+
+const CONFIG_LABELS = {
+    parallel_limit:    "Parallel Clusters",
+    max_parallel_nodes:"Max Parallel Nodes",
+    input_dir:         "Input Directory",
+    output_dir:        "Output Directory",
+    inventory_file:    "Inventory File",
+    ssh_timeout:       "SSH Timeout (sec)",
+    cmd_timeout:       "Command Timeout (sec)",
+};
+const THRESHOLD_LABELS = {
+    disk_percent: "Disk Usage Warn %",
+    mem_warn:     "Memory Warn %",
+    mem_fail:     "Memory Fail %",
+    load_warn:    "Load Ratio Warn",
+    load_fail:    "Load Ratio Fail",
+    swap_warn:    "Swap Usage Warn %",
+};
+
+// ══════════════════════════════════════════════════════════════════════════════
+//  INIT
+// ══════════════════════════════════════════════════════════════════════════════
+window.addEventListener('DOMContentLoaded', async () => {
+    await loadConfig();
+    await loadChecks();
+});
+
+async function loadChecks() {
+    const resp = await fetch('/api/checks');
+    checkCategories = await resp.json();
+    renderCheckGroups();
+    
+    // Apply last saved checks from config
+    if (configData.last_enabled_checks && configData.last_enabled_checks.length > 0) {
+        // First uncheck all
+        document.querySelectorAll('input[type=checkbox]').forEach(c => c.checked = false);
+        // Check only saved ones
+        configData.last_enabled_checks.forEach(id => {
+            const el = document.getElementById('chk_' + id);
+            if (el) el.checked = true;
+        });
+        // Update all counters
+        Object.keys(checkCategories).forEach(groupName => {
+            const gid = groupName.replace(/[^a-z]/gi, '_');
+            updateCounter(gid);
+        });
+    }
+}
+
+async function loadConfig() {
+    const resp = await fetch('/api/config');
+    configData = await resp.json();
+    renderConfig();
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+//  RENDER: Check Groups with Checkboxes
+// ══════════════════════════════════════════════════════════════════════════════
+function renderCheckGroups() {
+    const container = document.getElementById('checkGroups');
+    container.innerHTML = '';
+
+    const iconClasses = {
+        'OCP Checks (27)':  'ocp-icon',
+        'CVIM Checks (19)': 'cvim-icon',
+        'Host Checks (19)': 'host-icon',
+    };
+    const iconChars = {
+        'OCP Checks (27)':  '☸',
+        'CVIM Checks (19)': '☁',
+        'Host Checks (19)': '🖥',
+    };
+
+    for (const [groupName, items] of Object.entries(checkCategories)) {
+        const group = document.createElement('div');
+        group.className = 'check-group'; // All collapsed by default (no 'open' class)
+        const gid = groupName.replace(/[^a-z]/gi, '_');
+
+        group.innerHTML = `
+            <div class="check-group-header" onclick="toggleGroup(this)">
+                <div class="check-group-title">
+                    <span class="icon ${iconClasses[groupName] || ''}">${iconChars[groupName] || '📋'}</span>
+                    ${groupName}
+                    <span class="counter" id="cnt_${gid}">${items.length}/${items.length}</span>
+                </div>
+                <div class="check-group-actions">
+                    <span class="select-link" onclick="event.stopPropagation();selectAll('${gid}',true)">All</span>
+                    <span class="select-link" onclick="event.stopPropagation();selectAll('${gid}',false)">None</span>
+                    <span class="chevron">▼</span>
+                </div>
+            </div>
+            <div class="check-items" id="items_${gid}">
+                ${items.map(c => `
+                    <div class="check-item">
+                        <input type="checkbox" id="chk_${c.id}" data-group="${gid}" checked
+                                onchange="updateCounter('${gid}')">
+                        <label for="chk_${c.id}">${c.label}</label>
+                    </div>
+                `).join('')}
+            </div>
+        `;
+        container.appendChild(group);
+    }
+}
+
+function toggleGroup(header) {
+    header.parentElement.classList.toggle('open');
+}
+
+function selectAll(gid, checked) {
+    document.querySelectorAll(`#items_${gid} input[type=checkbox]`).forEach(c => c.checked = checked);
+    updateCounter(gid);
+    saveSelectedChecks();
+}
+
+function updateCounter(gid) {
+    const all = document.querySelectorAll(`#items_${gid} input[type=checkbox]`);
+    const checked = document.querySelectorAll(`#items_${gid} input[type=checkbox]:checked`);
+    document.getElementById(`cnt_${gid}`).textContent = `${checked.length}/${all.length}`;
+    if (event && event.type === 'change') {
+        saveSelectedChecks();
+    }
+}
+
+function saveSelectedChecks() {
+    configData.last_enabled_checks = getSelectedChecks();
+    triggerConfigSave();
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+//  RENDER: Config Fields
+// ══════════════════════════════════════════════════════════════════════════════
+function renderConfig() {
+    const grid = document.getElementById('configGrid');
+    grid.innerHTML = '';
+
+    // Main settings
+    for (const [key, label] of Object.entries(CONFIG_LABELS)) {
+        const val = configData[key] ?? '';
+        grid.innerHTML += `
+            <div class="config-field">
+                <label>${label}</label>
+                <input type="${typeof val === 'number' ? 'number' : 'text'}"
+                       value="${val}" data-key="${key}" onchange="onConfigChange(this)">
+            </div>
+        `;
+    }
+
+    // Thresholds
+    const thr = configData.thresholds || {};
+    for (const [key, label] of Object.entries(THRESHOLD_LABELS)) {
+        const val = thr[key] ?? '';
+        grid.innerHTML += `
+            <div class="config-field">
+                <label>${label}</label>
+                <input type="number" step="any"
+                       value="${val}" data-key="thresholds.${key}" onchange="onConfigChange(this)">
+            </div>
+        `;
+    }
+}
+
+async function onConfigChange(el) {
+    const path = el.dataset.key.split('.');
+    let target = configData;
+    for (let i = 0; i < path.length - 1; i++) {
+        if (!target[path[i]]) target[path[i]] = {};
+        target = target[path[i]];
+    }
+    let val = el.value;
+    if (el.type === 'number') val = parseFloat(val);
+    target[path[path.length - 1]] = val;
+
+    triggerConfigSave();
+}
+
+function triggerConfigSave() {
+    // Debounced save
+    clearTimeout(saveTimeout);
+    saveTimeout = setTimeout(async () => {
+        await fetch('/api/config', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify(configData),
+        });
+        const ind = document.getElementById('saveIndicator');
+        ind.classList.add('show');
+        setTimeout(() => ind.classList.remove('show'), 2000);
+    }, 600);
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+//  TABS
+// ══════════════════════════════════════════════════════════════════════════════
+function switchTab(tabId, el) {
+    document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+    document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
+    el.classList.add('active');
+    document.getElementById('tab-' + tabId).classList.add('active');
+}
+
+// ══════════════════════════════════════════════════════════════════════════════
+//  RUN HEALTH CHECK
+// ══════════════════════════════════════════════════════════════════════════════
+function getSelectedChecks() {
+    const checked = document.querySelectorAll('#checkGroups input[type=checkbox]:checked');
+    return Array.from(checked).map(c => c.id.replace('chk_', ''));
+}
+
+function appendLog(text) {
+    const terminal = document.getElementById('terminal');
+    const line = document.createElement('div');
+    line.className = 'log-line';
+    if (text.includes('✔') || text.includes('PASS')) line.classList.add('log-pass');
+    else if (text.includes('✘') || text.includes('FAIL')) line.classList.add('log-fail');
+    else if (text.includes('⚠') || text.includes('WARN')) line.classList.add('log-warn');
+    else if (text.startsWith('▶') || text.startsWith('📋')) line.classList.add('log-info');
+    line.textContent = text;
+    terminal.appendChild(line);
+    terminal.scrollTop = terminal.scrollHeight;
+}
+
+function startRun() {
+    const btn = document.getElementById('runBtn');
+    const termWrapper = document.getElementById('terminalWrapper');
+    const terminal = document.getElementById('terminal');
+    const banner = document.getElementById('resultsBanner');
+
+    btn.disabled = true;
+    btn.innerHTML = `<svg class="spin" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" style="animation:spin 1s linear infinite"><circle cx="12" cy="12" r="10" stroke-opacity="0.25"/><path d="M12 2a10 10 0 0 1 10 10" stroke-linecap="round"/></svg> Running…`;
+    terminal.innerHTML = '';
+    termWrapper.style.display = 'block';
+    banner.style.display = 'none';
+
+    appendLog('🚀 Initializing CloudHealth Diagnostics…');
+
+    const checks = getSelectedChecks();
+    const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
+    const ws = new WebSocket(`${protocol}//${location.host}/ws/run`);
+
+    ws.onopen = () => {
+        ws.send(JSON.stringify({ checks }));
+    };
+
+    ws.onmessage = (e) => {
+        const data = JSON.parse(e.data);
+        if (data.type === 'log') {
+            appendLog(data.message);
+        } else if (data.type === 'done') {
+            appendLog('');
+            appendLog('✅ All diagnostics complete!');
+            showResults(data);
+            btn.disabled = false;
+            btn.innerHTML = `<svg viewBox="0 0 20 20" fill="currentColor"><path d="M4.5 2.691a.75.75 0 0 1 1.082-.67l10.5 5.809a.75.75 0 0 1 0 1.34l-10.5 5.809a.75.75 0 0 1-1.082-.67V2.691Z"/></svg> Run Again`;
+        } else if (data.type === 'error') {
+            appendLog('❌ ERROR: ' + data.message);
+            btn.disabled = false;
+            btn.innerHTML = `<svg viewBox="0 0 20 20" fill="currentColor"><path d="M4.5 2.691a.75.75 0 0 1 1.082-.67l10.5 5.809a.75.75 0 0 1 0 1.34l-10.5 5.809a.75.75 0 0 1-1.082-.67V2.691Z"/></svg> Retry`;
+        }
+    };
+
+    ws.onerror = () => {
+        appendLog('❌ WebSocket connection error');
+        btn.disabled = false;
+        btn.innerHTML = `<svg viewBox="0 0 20 20" fill="currentColor"><path d="M4.5 2.691a.75.75 0 0 1 1.082-.67l10.5 5.809a.75.75 0 0 1 0 1.34l-10.5 5.809a.75.75 0 0 1-1.082-.67V2.691Z"/></svg> Retry`;
+    };
+}
+
+function showResults(data) {
+    const banner = document.getElementById('resultsBanner');
+    const s = data.summary;
+    const hasFails = s.fail > 0;
+
+    banner.className = 'results-banner' + (hasFails ? ' has-failures' : '');
+    document.getElementById('resultsTitle').textContent = hasFails
+        ? '⚠ Issues Detected' : '✅ All Systems Healthy';
+
+    document.getElementById('resultsStats').innerHTML = `
+        <div class="stat"><span class="stat-value">${s.clusters}</span><span class="stat-label">Clusters</span></div>
+        <div class="stat"><span class="stat-value" style="color:var(--success)">${s.pass}</span><span class="stat-label">Passed</span></div>
+        <div class="stat"><span class="stat-value" style="color:var(--danger)">${s.fail}</span><span class="stat-label">Failed</span></div>
+        <div class="stat"><span class="stat-value" style="color:var(--warning)">${s.warn}</span><span class="stat-label">Warnings</span></div>
+    `;
+
+    document.getElementById('reportBtn').href = data.report_url;
+    banner.style.display = 'block';
+    banner.scrollIntoView({ behavior: 'smooth', block: 'center' });
+}
+</script>
+<style>@keyframes spin{to{transform:rotate(360deg)}}.spin{animation:spin 1s linear infinite}</style>
+</body>
+</html>

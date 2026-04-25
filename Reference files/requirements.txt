@@ -1,0 +1,17 @@
+# ── Frontend (runs on user's machine) ────────────────────────────────────────
+fastapi>=0.110.0
+uvicorn[standard]>=0.29.0
+websockets>=12.0
+paramiko>=3.4.0
+PyYAML>=6.0.1
+openpyxl>=3.1.0
+cryptography>=42.0.0    # already pulled in by paramiko; listed explicitly for clarity
+rich>=13.7.0
+
+# ── Backend (bundled into backend.pyz for deployment to bastions) ─────────────
+# These are the same packages needed on the bastion.
+# Build backend.pyz with: python3 -m zipapp backend/ -p '/usr/bin/env python3'
+# Or vendor with: pip install --target backend/vendor fastapi uvicorn starlette
+
+# ── Bootstrapper (compiled to exe with PyInstaller) ───────────────────────────
+# pyinstaller>=6.5.0    # dev dependency only — not needed at runtime
