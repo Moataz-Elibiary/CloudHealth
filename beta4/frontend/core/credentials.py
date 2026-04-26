@@ -21,7 +21,7 @@ from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
 
 
-CACHE_DIR  = Path.home() / ".clusterpulse"
+CACHE_DIR  = Path.home() / ".cloud_health"
 CACHE_FILE = CACHE_DIR / "credentials.cache"
 PBKDF2_ITERATIONS = 480_000   # OWASP 2023 recommendation
 

@@ -18,7 +18,7 @@ log = logging.getLogger("frontend.version_sync")
 
 LOCAL_DIR          = Path(__file__).parent.parent.parent   # root of the program
 LOCAL_VERSION_FILE = LOCAL_DIR / "version.txt"
-REMOTE_ROOT        = "/opt/clusterpulse"
+REMOTE_ROOT        = "/opt/cloud_health"
 REMOTE_VERSION     = f"{REMOTE_ROOT}/version.txt"
 
 

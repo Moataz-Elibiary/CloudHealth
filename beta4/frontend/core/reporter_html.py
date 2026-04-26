@@ -9,7 +9,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import List, Optional
 
-from result import ClusterResult, Section, Status
+from result import ClusterResult, SectionResult, Status
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -602,7 +602,7 @@ def _render_item(item, idx: int, section_id: str) -> str:
     )
 
 
-def _render_section(s: Section, s_idx: int, c_idx: int) -> str:
+def _render_section(s: SectionResult, s_idx: int, c_idx: int) -> str:
     sid  = f"c{c_idx}_s{s_idx}"
     ws   = s.worst_status
     dur  = f'<span class="cp-section-dur">{s.duration_s:.1f}s</span>' if s.duration_s else ""
@@ -610,7 +610,7 @@ def _render_section(s: Section, s_idx: int, c_idx: int) -> str:
             f'<span class="cp-cnt fail">{s.fail_count}✕</span>'
             f'<span class="cp-cnt warn">{s.warn_count}⚠</span>')
 
-    items_html = "\n".join(_render_item(item, i, sid) for i, item in enumerate(s.items))
+    items_html = "\n".join(_render_item(item, i, sid) for i, item in enumerate(s.checks))
 
     raw_html = ""
     if s.raw_log.strip():
@@ -741,13 +741,13 @@ class HTMLReporter:
         clusters_html = "\n".join(_render_cluster(r, i) for i, r in enumerate(self.results))
 
         # filter buttons with counts
-        n_fail = sum(1 for r in self.results for s in r.sections for item in s.items
+        n_fail = sum(1 for r in self.results for s in r.sections for item in s.checks
                      if item.status in (Status.FAIL, Status.ERROR))
-        n_warn = sum(1 for r in self.results for s in r.sections for item in s.items
+        n_warn = sum(1 for r in self.results for s in r.sections for item in s.checks
                      if item.status == Status.WARN)
-        n_pass = sum(1 for r in self.results for s in r.sections for item in s.items
+        n_pass = sum(1 for r in self.results for s in r.sections for item in s.checks
                      if item.status == Status.PASS)
-        n_info = sum(1 for r in self.results for s in r.sections for item in s.items
+        n_info = sum(1 for r in self.results for s in r.sections for item in s.checks
                      if item.status in (Status.INFO, Status.SKIP))
 
         meta_clusters = f"{len(self.results)} cluster{'s' if len(self.results)!=1 else ''}"
@@ -858,7 +858,7 @@ class HTMLReporter:
 
             detail = ""
             for s in fail_sections[:8]:
-                for item in s.items:
+                for item in s.checks:
                     if item.status in (Status.FAIL, Status.ERROR, Status.WARN):
                         ic = _badge_inline(item.status, small=True)
                         detail += (

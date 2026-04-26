@@ -242,8 +242,10 @@ async def _run_all_clusters(ui_ws: WebSocket, enabled_checks=None):
     LAST_RESULTS        = []
     LATEST_REPORT_PATH  = None
 
-    config_path = ROOT_DIR / "config.yaml"
-    loader      = ConfigLoader(str(config_path))
+    config_path = ROOT_DIR / "config" / "config.yaml"
+    if not config_path.exists():
+        config_path = ROOT_DIR / "config.yaml"
+    loader       = ConfigLoader(str(config_path))
     app_settings = loader.get_app_settings()
 
     if enabled_checks is not None:
