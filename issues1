@@ -1,0 +1,95 @@
+Let me examine beta4's path handling in detail across all components.
+I re-read all of beta4 carefully. There are path and naming inconsistencies that will cause runtime errors. Here's exactly what's wrong and how to fix each file.
+1.  frontend/app.py — Config path is hardcoded to root, ignoring config/config.yaml
+Problem: Line 245 hardcodes ROOT_DIR / "config.yaml", but the repo ships config/config.yaml. When you run beta4, the frontend crashes because it can't find config.yaml at the root. Also, start(app_config) ignores the config already loaded by main.py.
+Fix:
+In frontend/app.py, replace lines 244-246:
+config_path = ROOT_DIR / "config.yaml"
+loader      = ConfigLoader(str(config_path))
+app_settings = loader.get_app_settings()
+
+With:
+cfg_file = ROOT_DIR / "config" / "config.yaml"
+if not cfg_file.exists():
+    cfg_file = ROOT_DIR / "config.yaml"
+loader       = ConfigLoader(str(cfg_file))
+app_settings = loader.get_app_settings()
+
+Even better — reuse the already-loaded config from main.py by storing it globally, but the above is the minimal safe fix.
+2.  frontend/core/version_sync.py — Stale remote path from beta2
+Problem: Lines 21-22 still point to /opt/clusterpulse (the old beta2 name). Beta4's bootstrapper and backend use /opt/cloud_health.
+Fix:
+Replace lines 21-22:
+REMOTE_ROOT        = "/opt/clusterpulse"
+REMOTE_VERSION     = f"{REMOTE_ROOT}/version.txt"
+With:
+REMOTE_ROOT        = "/opt/cloud_health"
+REMOTE_VERSION     = f"{REMOTE_ROOT}/version.txt"
+(Note: This file appears to be dead code right now — nothing imports it — but if you ever wire it up, this path mismatch will break version syncing.)
+3.  frontend/core/config.py — Default search paths still reference old "clusterpulse" name
+Problem: Lines 47-48 search for clusterpulse.yaml and ~/.clusterpulse/config.yaml. These are beta2 artifacts and should use the CloudHealth name.
+Fix:
+Replace lines 46-48:
+DEFAULT_CONFIGS = [
+    Path("config/config.yaml"),
+    Path("clusterpulse.yaml"),
+    Path.home() / ".clusterpulse" / "config.yaml",
+]
+
+With:
+DEFAULT_CONFIGS = [
+    Path("config/config.yaml"),
+    Path("cloudhealth.yaml"),
+    Path.home() / ".cloud_health" / "config.yaml",
+]
+
+----
+4.  frontend/core/credentials.py — Cache directory uses old name
+Problem: Line 24 caches credentials in ~/.clusterpulse. Everything else in beta4 uses ~/.cloud_health.
+Fix:
+Replace line 24:
+CACHE_DIR  = Path.home() / ".clusterpulse"
+With:
+CACHE_DIR  = Path.home() / ".cloud_health"
+(Note: Like version_sync.py, this module is currently unused — the bootstrapper inlines its own crypto. But if you import it later, the paths should match.)
+5.  frontend/core/reporter_html.py — Broken imports from beta2 → beta4 rename
+This is the biggest functional bug. The file was copied from beta2 but beta4 renamed Section → SectionResult and items → checks. The report generator will crash with an ImportError as soon as it tries to generate output.
+Fix #1 — Line 12 import:
+Replace:
+from result import ClusterResult, Section, Status
+With:
+from result import ClusterResult, SectionResult, Status
+Fix #2 — Line 605 type hint:
+Replace:
+def _render_section(s: Section, s_idx: int, c_idx: int) -> str:
+With:
+def _render_section(s: SectionResult, s_idx: int, c_idx: int) -> str:
+Fix #3 — All s.items → s.checks (lines 613, 744-750, 861):
+Line 613:
+items_html = "\n".join(_render_item(item, i, sid) for i, item in enumerate(s.checks))
+
+Lines 744-750:
+    n_fail = sum(1 for r in self.results for s in r.sections for item in s.checks
+                 if item.status in (Status.FAIL, Status.ERROR))
+    n_warn = sum(1 for r in self.results for s in r.sections for item in s.checks
+                 if item.status == Status.WARN)
+    n_pass = sum(1 for r in self.results for s in r.sections for item in s.checks
+                 if item.status == Status.PASS)
+    n_info = sum(1 for r in self.results for s in r.sections for item in s.checks
+                 if item.status in (Status.INFO, Status.SKIP))
+
+Lines 860-861:
+        for s in fail_sections[:8]:
+            for item in s.checks:
+
+----
+Summary of Fixes Needed
+File	Line(s)	Issue	Fix
+frontend/app.py	245	Hardcodes config.yaml at root	Point to config/config.yaml with fallback
+frontend/core/version_sync.py	21-22	Remote path is /opt/clusterpulse	Change to /opt/cloud_health
+frontend/core/config.py	47-48	Default paths reference clusterpulse	Change to cloudhealth / .cloud_health
+frontend/core/credentials.py	24	Cache dir is .clusterpulse	Change to .cloud_health
+frontend/core/reporter_html.py	12	Imports Section (doesn't exist)	Import SectionResult
+frontend/core/reporter_html.py	605	Type hint Section	Change to SectionResult
+frontend/core/reporter_html.py	613, 744-750, 861	Uses s.items	Change all to s.checks
+If you want, I can apply all these fixes directly to the files and create a patched version for you
