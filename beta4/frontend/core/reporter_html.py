@@ -607,7 +607,7 @@ def _render_item(item, idx: int, section_id: str) -> str:
 
 def _render_section(s: SectionResult, s_idx: int, c_idx: int) -> str:
     sid  = f"c{c_idx}_s{s_idx}"
-    ws   = s.worst_status
+    ws   = s.status
     dur  = f'<span class="cp-section-dur">{s.duration_s:.1f}s</span>' if s.duration_s else ""
     cnts = (f'<span class="cp-cnt pass">{s.pass_count}✓</span>'
             f'<span class="cp-cnt fail">{s.fail_count}✕</span>'
