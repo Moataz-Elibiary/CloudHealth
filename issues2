@@ -1,0 +1,613 @@
+================================================================================
+  CloudHealth Beta 4 — Full Bug & Mismatch Report
+  Generated: 2026-04-27
+  Total Issues: 22  (Critical: 8 | High: 6 | Medium: 5 | Minor: 3)
+================================================================================
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  CRITICAL ISSUES  (will cause crash / ImportError / TypeError at startup)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+────────────────────────────────────────────────────────────────────────────────
+[C-1]  Wrong import directory: `checks.` vs `check/`
+File:  backend/check_runner.py
+────────────────────────────────────────────────────────────────────────────────
+Problem:
+  check_runner.py imports from the package name "checks" (plural), but the
+  actual directory on disk is named "check/" (singular). Python raises
+  ModuleNotFoundError immediately at startup — nothing runs.
+
+Broken code:
+  from checks.cvim_checks import CVIMHealthChecker
+  from checks.host_checks  import HostHealthChecker
+  from checks.ocp_checks   import OCPHealthChecker
+
+Fix:
+  from check.cvim_checks import CVIMHealthChecker
+  from check.host_checks  import HostHealthChecker
+  from check.ocp_checks   import OCPHealthChecker
+
+
+────────────────────────────────────────────────────────────────────────────────
+[C-2]  `Section` does not exist — the class is named `SectionResult`
+Files: backend/check/cvim_checks.py
+       backend/check/ocp_checks.py
+       backend/check/host_checks.py
+────────────────────────────────────────────────────────────────────────────────
+Problem:
+  All three checker files do:
+      from result import Section, Status
+  The result module (result.py) defines SectionResult, not Section.
+  Every single Section(...) constructor call inside all checkers raises
+  NameError at runtime. This affects every health check in the application.
+
+Broken code:
+  from result import Section, Status
+  ...
+  sec = Section(name, cat, start_time=datetime.now())
+
+Fix:
+  from result import SectionResult, Status
+  ...
+  sec = SectionResult(name, cat, start_time=datetime.now())
+
+
+────────────────────────────────────────────────────────────────────────────────
+[C-3]  `AppConfig` does not exist — the class is named `AppSettings`
+Files: backend/check/cvim_checks.py
+       backend/check/ocp_checks.py
+       backend/check/host_checks.py
+────────────────────────────────────────────────────────────────────────────────
+Problem:
+  All checker files import AppConfig from a module called "config":
+      from config import ClusterConfig, AppConfig, resolve_threshold
+  Two problems in one line:
+  (a) There is no "config" module in the backend — the correct module is
+      core.inventory.
+  (b) AppConfig does not exist — the correct class name is AppSettings.
+  This raises ImportError before any checker can be instantiated.
+
+Broken code:
+  from config import ClusterConfig, AppConfig, resolve_threshold
+
+Fix:
+  from core.inventory import ClusterConfig, AppSettings as AppConfig, \
+      resolve_threshold
+
+
+────────────────────────────────────────────────────────────────────────────────
+[C-4]  `SSHCred` does not exist anywhere in the codebase
+File:  backend/check/host_checks.py
+────────────────────────────────────────────────────────────────────────────────
+Problem:
+  host_checks.py imports SSHCred from config:
+      from config import SSHCred, AppConfig
+  SSHCred is never defined anywhere in the project. The HostHealthChecker
+  constructor stores self.cred = ssh_cred and later passes it directly to
+  SSHClient as the second positional argument — but SSHClient expects a plain
+  string (username), not an object. Raises ImportError.
+
+Broken code:
+  from config import SSHCred, AppConfig
+
+  class HostHealthChecker:
+      def __init__(self, nodes: List[str], ssh_cred: SSHCred, ...):
+          self.cred = ssh_cred
+      ...
+      ssh = SSHClient(node, self.cred, timeout=self.app.ssh_timeout, ...)
+
+Fix:
+  Remove SSHCred entirely. Store credentials as individual fields:
+      self.ssh_username = ssh_username
+      self.ssh_password = ssh_password
+      self.ssh_key_path = ssh_key_path
+  Then call:
+      ssh = SSHClient(
+          host=node.ip,
+          username=self.ssh_username,
+          password=self.ssh_password,
+          key_path=self.ssh_key_path,
+          timeout=self.app.ssh_timeout,
+          logger=self.log
+      )
+
+
+────────────────────────────────────────────────────────────────────────────────
+[C-5]  `_build_checker()` missing required `logger` and `console` arguments
+File:  backend/check_runner.py → _build_checker()
+────────────────────────────────────────────────────────────────────────────────
+Problem:
+  CVIMHealthChecker and OCPHealthChecker both require five arguments:
+      (cluster, app, ssh, logger, console)
+  But _build_checker() only passes three:
+      (ssh, app, cluster)
+  Additionally, it passes "enabled_checks" which is NOT a constructor
+  parameter for either checker — they read enabled checks from app.enabled_checks
+  internally. Every call to _build_checker() raises TypeError.
+
+Broken code:
+  return OCPHealthChecker(
+      ssh            = self.client,
+      app            = self.app,
+      cluster        = self.cluster,
+      enabled_checks = self.enabled_checks,  # not a valid param
+      # logger and console are missing
+  )
+
+Fix:
+  import logging
+  from rich.console import Console
+
+  return OCPHealthChecker(
+      cluster = self.cluster,
+      app     = self.app,
+      ssh     = self.client,
+      logger  = logging.getLogger(self.cluster.name),
+      console = Console(quiet=True),
+  )
+  # Same pattern for CVIMHealthChecker
+
+
+────────────────────────────────────────────────────────────────────────────────
+[C-6]  `HostHealthChecker` called with wrong and missing arguments
+File:  backend/check_runner.py → CheckRunner.run()
+────────────────────────────────────────────────────────────────────────────────
+Problem:
+  check_runner.py instantiates HostHealthChecker as:
+      HostHealthChecker(
+          nodes            = self.cluster.nodes,
+          app              = self.app,
+          cluster_name     = self.cluster.name,
+          subscriber_queue = self.subscriber_queue,
+      )
+  But the constructor signature is:
+      __init__(self, nodes, ssh_cred, app, logger, console, cluster_name="")
+  Missing: ssh_cred, logger, console.
+  Extra:   subscriber_queue (not a parameter in HostHealthChecker at all).
+  Raises TypeError.
+
+Broken code:
+  host_checker = HostHealthChecker(
+      nodes            = self.cluster.nodes,
+      app              = self.app,
+      cluster_name     = self.cluster.name,
+      subscriber_queue = self.subscriber_queue,  # not a valid param
+  )
+
+Fix:
+  host_checker = HostHealthChecker(
+      nodes        = self.cluster.nodes,
+      ssh_username = ...,   # derive from cluster node configs
+      ssh_password = ...,
+      ssh_key_path = ...,
+      app          = self.app,
+      logger       = self.log,
+      console      = self.con,
+      cluster_name = self.cluster.name,
+  )
+
+
+────────────────────────────────────────────────────────────────────────────────
+[C-7]  `HostHealthChecker` expects `List[str]` but receives `List[NodeConfig]`
+Files: backend/check_runner.py → backend/check/host_checks.py
+────────────────────────────────────────────────────────────────────────────────
+Problem:
+  check_runner.py passes self.cluster.nodes, which is List[NodeConfig].
+  HostHealthChecker declares its parameter as nodes: List[str] and uses
+  each element as a bare hostname string (e.g. in SSH calls and remote
+  commands like f"ssh {node} '...'"). Passing NodeConfig objects causes
+  AttributeError and broken SSH connections throughout _check_node().
+
+Broken code:
+  # check_runner.py:
+  host_checker = HostHealthChecker(
+      nodes = self.cluster.nodes,  # List[NodeConfig], not List[str]
+      ...
+  )
+
+  # host_checks.py:
+  ssh = SSHClient(node, self.cred, ...)  # node is a NodeConfig object
+
+Fix:
+  Change HostHealthChecker to accept List[NodeConfig] and extract .ip,
+  .username, .password, .key_path from each NodeConfig when connecting.
+  Or convert before passing:
+      nodes=[n.ip for n in self.cluster.nodes]
+  (though this loses the per-node credentials needed for SSHClient)
+
+
+────────────────────────────────────────────────────────────────────────────────
+[C-8]  `SSHClient` called with `NodeConfig` object instead of string arguments
+File:  backend/check/host_checks.py → _check_node()
+────────────────────────────────────────────────────────────────────────────────
+Problem:
+  SSHClient is instantiated as SSHClient(node, self.cred, timeout=...).
+  SSHClient's constructor signature is:
+      __init__(self, host:str, username:str, password=None, key_path=None, ...)
+  Both positional arguments are the wrong type:
+  - host arg receives a NodeConfig object (or a raw string if C-7 is fixed)
+  - username arg receives an SSHCred object (which doesn't exist — see C-4)
+  The Paramiko connection will fail with unexpected type errors.
+
+Broken code:
+  ssh = SSHClient(node, self.cred, timeout=self.app.ssh_timeout, logger=self.log)
+
+Fix:
+  ssh = SSHClient(
+      host     = node.ip,
+      username = node.username,
+      password = node.password,
+      key_path = node.key_path,
+      timeout  = self.app.ssh_timeout,
+      logger   = self.log
+  )
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  HIGH ISSUES  (broken functionality / wrong runtime behaviour)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+────────────────────────────────────────────────────────────────────────────────
+[H-1]  `_wire_section` injected but never called — streaming silently broken
+Files: backend/check_runner.py
+       backend/check/cvim_checks.py
+       backend/check/ocp_checks.py
+────────────────────────────────────────────────────────────────────────────────
+Problem:
+  CheckRunner._run_checker() does:
+      checker._wire_section = self._wire
+      return await checker.run()
+  The intent is that run() calls self._wire_section(sec) on each SectionResult
+  to attach the asyncio.Queue before the check function executes, enabling
+  real-time per-item streaming to the browser.
+
+  But neither CVIMHealthChecker.run() nor OCPHealthChecker.run() ever calls
+  self._wire_section(). Sections are created and handed to check functions
+  without the queue ever being attached. Every sec.pass_()/fail_()/warn_()
+  call inside every check runs _push() on a None queue, silently dropping
+  all events. Real-time streaming never works.
+
+Broken code (in CVIMHealthChecker.run() and OCPHealthChecker.run()):
+  sec = Section(name, cat, start_time=datetime.now())
+  # _wire_section is never called here
+  try:
+      await fn(sec)
+
+Fix:
+  sec = SectionResult(name, cat, start_time=datetime.now())
+  if hasattr(self, '_wire_section'):
+      sec = self._wire_section(sec)
+  try:
+      await fn(sec)
+
+
+────────────────────────────────────────────────────────────────────────────────
+[H-2]  `worst_status` property does not exist on `SectionResult`
+File:  frontend/core/reporter_html.py → _render_section()
+────────────────────────────────────────────────────────────────────────────────
+Problem:
+  _render_section() calls:
+      ws = s.worst_status
+  SectionResult has no property named worst_status. The correct property
+  is .status, which already returns the worst/highest-severity status from
+  the checks list (FAIL > ERROR > WARN > PASS > INFO > SKIP).
+  Calling .worst_status raises AttributeError and crashes the entire HTML
+  report generation.
+
+Broken code:
+  def _render_section(s: SectionResult, s_idx, c_idx):
+      ws = s.worst_status   # AttributeError
+
+Fix:
+  ws = s.status   # already returns the worst status by priority
+
+
+────────────────────────────────────────────────────────────────────────────────
+[H-3]  Bare `from result import` fails in frontend package context
+File:  frontend/core/reporter_html.py
+────────────────────────────────────────────────────────────────────────────────
+Problem:
+  reporter_html.py uses:
+      from result import ClusterResult, SectionResult, Status
+  There is no sys.path manipulation in this file that adds backend/ to
+  the path. In the frontend package context, this import will fail with
+  ModuleNotFoundError. The correct import path is core.result.
+
+Broken code:
+  from result import ClusterResult, SectionResult, Status
+
+Fix:
+  from core.result import ClusterResult, SectionResult, Status
+
+
+────────────────────────────────────────────────────────────────────────────────
+[H-4]  `dp -a` is not a valid shell command — should be `docker ps`
+File:  backend/check/host_checks.py → _check_containers()
+────────────────────────────────────────────────────────────────────────────────
+Problem:
+  The container check shell command contains:
+      curr=$(dp -a 2>/dev/null | grep -v Names | grep -c Up || echo 0)
+  "dp" is not a recognised shell command. The correct command is "docker ps".
+  Because of the "|| echo 0" fallback, this silently returns 0 for every
+  node, making all container checks report "0 containers running" regardless
+  of actual state. No error is raised — the check just always produces
+  incorrect results.
+
+Broken code:
+  f"'curr=$(dp -a 2>/dev/null | grep -v Names | grep -c Up || echo 0); ..."
+
+Fix:
+  f"'curr=$(docker ps 2>/dev/null | grep -v NAMES | grep -c ' Up' || echo 0); ..."
+
+
+────────────────────────────────────────────────────────────────────────────────
+[H-5]  Two conflicting `SSHClient` implementations — one is dead code
+Files: backend/ssh_client.py
+       backend/core/ssh.py
+────────────────────────────────────────────────────────────────────────────────
+Problem:
+  The backend defines SSHClient twice:
+  - ssh_client.py:   SSHClient returns SSHResult (has .out, .stdout, .stderr,
+                     .exit_code, .ok, .combined, .duration_ms)
+  - core/ssh.py:     SSHClient returns CmdResult (same interface but different
+                     class name)
+  check_runner.py and all checkers import from ssh_client (correct).
+  core/ssh.py is never imported by anything in the project — it is dead code.
+  Having two classes with the same name and near-identical interfaces creates
+  confusion and maintenance risk.
+
+Fix:
+  Delete backend/core/ssh.py entirely.
+  Keep backend/ssh_client.py as the single source of truth for SSHClient
+  and SSHResult. Update any documentation references.
+
+
+────────────────────────────────────────────────────────────────────────────────
+[H-6]  `_check_certs` runs up to 160 sequential SSH commands — extreme latency
+File:  backend/check/ocp_checks.py → _check_certs()
+────────────────────────────────────────────────────────────────────────────────
+Problem:
+  The certificate check iterates over up to 80 TLS secrets and fires
+  2 sequential await ssh.run() calls per secret (one to fetch the cert,
+  one to calculate days remaining). With a 15s and 10s timeout respectively,
+  this single check could take up to 80 × 25s = 2000 seconds (~33 minutes)
+  in the worst case. It blocks all subsequent checks in the section list.
+
+Broken code:
+  for line in lines[:80]:
+      r2 = await self.ssh.run(..., timeout=15)
+      r3 = await self.ssh.run(..., timeout=10)
+      # up to 160 sequential awaits, no concurrency
+
+Fix:
+  Use asyncio.gather() with a Semaphore to parallelise:
+      sem = asyncio.Semaphore(10)
+      tasks = [check_one_cert(ns, name, sem) for ns, name in secrets[:40]]
+      await asyncio.gather(*tasks)
+  Or reduce the scope to lines[:20] with a 5s per-command timeout.
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  MEDIUM ISSUES  (logic errors / design problems / silent wrong behaviour)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+────────────────────────────────────────────────────────────────────────────────
+[M-1]  `_AppConfig.to_backend_dict()` returns `clusters` key — backend expects `cluster`
+Files: frontend/core/config.py → backend/main.py
+────────────────────────────────────────────────────────────────────────────────
+Problem:
+  _AppConfig.to_backend_dict() returns a dict with key "clusters" (plural,
+  a list of all clusters). The backend's _run_checks_task() reads the config
+  as config.get("cluster", {}) — singular, expecting a single cluster dict.
+  If to_backend_dict() were ever called, the backend would receive an empty
+  dict for "cluster" and silently check nothing.
+
+  Additionally, to_backend_dict() is never actually called — frontend/app.py
+  builds the payload manually with the correct singular "cluster" key. The
+  method is dead code with a latent key mismatch.
+
+Broken code:
+  # config.py:
+  return {**settings_dict, "clusters": clusters_out}   # plural list
+
+  # backend main.py:
+  config.get("cluster", {})   # expects singular dict — gets {}
+
+Fix:
+  Either: rename the key to "cluster" and always send one cluster at a time.
+  Or: update the backend to accept "clusters" list and iterate.
+  Also: add actual usage of to_backend_dict() or remove it.
+
+
+────────────────────────────────────────────────────────────────────────────────
+[M-2]  Race condition: backend launched over SSH before port is bound
+File:  frontend/app.py → _run_single_cluster()
+────────────────────────────────────────────────────────────────────────────────
+Problem:
+  The sequence is:
+      await asyncio.to_thread(ssh.exec_command, launch_cmd)
+      await _wait_for_port(local_port)
+  exec_command() returns as soon as the remote shell accepts the nohup
+  command string — not when the Python process is actually listening.
+  There is also no guarantee the SSH tunnel's local listener is fully
+  established by the time _wait_for_port starts polling. The 0.5s poll
+  interval and 20s timeout reduce (but do not eliminate) the risk of a
+  spurious "port not ready" error on loaded bastions.
+
+Fix:
+  Add an initial 1–2s sleep before the first poll:
+      await asyncio.sleep(1.5)
+      await _wait_for_port(local_port)
+  Or rely on ws_proxy.py's existing reconnect loop (MAX_RECONNECTS=12,
+  RECONNECT_DELAY=3s) and remove _wait_for_port entirely, since the proxy
+  already handles ConnectionRefusedError gracefully.
+
+
+────────────────────────────────────────────────────────────────────────────────
+[M-3]  `result.py` duplicated in two locations with no automatic sync
+Files: backend/result.py
+       frontend/core/result.py
+────────────────────────────────────────────────────────────────────────────────
+Problem:
+  Both files are byte-for-byte identical. The comment says the frontend copy
+  is "copied during SFTP push", but tunnel_manager._sftp_push_sync() copies
+  the entire backend/ directory — the frontend copy at frontend/core/result.py
+  is a separate file that is never automatically updated. Any change to
+  backend/result.py must be manually mirrored to frontend/core/result.py,
+  creating a permanent divergence risk.
+
+Fix:
+  Create a single shared/result.py at the project root. Add the project
+  root to sys.path in both backend/main.py and frontend/app.py.
+  Both packages then do: from result import ...
+  Alternatively, generate frontend/core/result.py as a build step (e.g.
+  a Makefile target: cp backend/result.py frontend/core/result.py).
+
+
+────────────────────────────────────────────────────────────────────────────────
+[M-4]  Network agent threshold is hardcoded and fails silently when query errors
+File:  backend/check/cvim_checks.py → _check_network_agents()
+────────────────────────────────────────────────────────────────────────────────
+Problem:
+  The required agent count is:
+      required = hv * 2 + 12
+  where hv comes from: ciscovim list-nodes | grep -c compute
+  If this command fails or returns 0 (e.g. ciscovim not in PATH, no compute
+  nodes found), then required = 12. The check may then pass trivially if
+  there happen to be 12 or more agents alive, masking a real node discovery
+  failure. The magic constant 12 is undocumented.
+
+Fix:
+  Guard against hv == 0:
+      if hv == 0:
+          sec.warn("Could not determine compute node count — threshold unreliable")
+  Document the formula (e.g., 2 agents per compute node + 12 controller agents).
+  Consider making the base constant (12) configurable in AppSettings.
+
+
+────────────────────────────────────────────────────────────────────────────────
+[M-5]  `_check_vms` pass/warn/fail branches can contradict each other
+File:  backend/check/cvim_checks.py → _check_vms()
+────────────────────────────────────────────────────────────────────────────────
+Problem:
+  The check contains:
+      (sec.pass_(f"All {active} active VMs running")
+       if active == total - shutoff - error
+       else sec.warn(f"{total-active} VM(s) not ACTIVE", ...))
+      if error > 0:
+          sec.fail(f"{error} VM(s) in ERROR state")
+
+  When active=5, shutoff=3, error=2, total=10:
+  - active == total - shutoff - error → 5 == 10-3-2 → 5 == 5 → True → sec.pass_()
+  - then: error > 0 → sec.fail()
+  Result: both PASS and FAIL items appear in the same section, which is
+  confusing and likely not the intended behaviour.
+
+Fix:
+  Separate the three concerns explicitly:
+      if error > 0:
+          sec.fail(f"{error} VM(s) in ERROR state")
+      if shutoff > 0:
+          sec.warn(f"{shutoff} VM(s) SHUTOFF")
+      if active == total - shutoff - error:
+          sec.pass_(f"{active} active VM(s), {shutoff} shutoff, {error} error")
+      else:
+          sec.warn(f"Unexpected VM state counts: active={active}, ...")
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  MINOR ISSUES  (code quality / dead code / misleading naming)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+────────────────────────────────────────────────────────────────────────────────
+[N-1]  Variable names `want_s` / `have_s` are semantically backwards
+File:  backend/check/ocp_checks.py → _check_deployments()
+────────────────────────────────────────────────────────────────────────────────
+Problem:
+  For `oc get deployment`, the READY column shows: current/desired (e.g. "2/3").
+  After split:
+      want_s, have_s = ready_str.split("/", 1)
+  This assigns:  want_s = "2" (current/ready count)
+                 have_s = "3" (desired count)
+  The names imply want = desired and have = current, which is the opposite
+  of what is stored. The logic itself (if int(want_s) < int(have_s)) is
+  accidentally correct, but is a trap for future maintainers.
+
+Broken code:
+  want_s, have_s = ready_str.split("/", 1)
+  if int(want_s) < int(have_s): bad.append(l.strip())
+
+Fix:
+  ready, desired = ready_str.split("/", 1)
+  if int(ready) < int(desired): bad.append(l.strip())
+
+
+────────────────────────────────────────────────────────────────────────────────
+[N-2]  `ClusterResult` imported in `check_runner.py` but never used
+File:  backend/check_runner.py
+────────────────────────────────────────────────────────────────────────────────
+Problem:
+  check_runner.py imports:
+      from result import ClusterResult, SectionResult
+  ClusterResult is never referenced in the file. The run() method returns
+  whatever checker.run() returns (a list of SectionResult), and the return
+  type is not annotated. This is an unused import — minor dead code.
+
+Fix:
+  from result import SectionResult
+  # Remove ClusterResult from import
+
+
+────────────────────────────────────────────────────────────────────────────────
+[N-3]  `core/models.py` is an unused re-export compatibility shim
+File:  backend/core/models.py
+────────────────────────────────────────────────────────────────────────────────
+Problem:
+  core/models.py contains only:
+      from result import CheckItem, ClusterResult, SectionResult, Status
+      __all__ = [...]
+  The file's comment says it's a "compatibility re-export". However, nothing
+  in the entire codebase imports from core.models. It is dead code that adds
+  ambiguity about where the canonical model types live.
+
+Fix:
+  Delete backend/core/models.py.
+  All consumers should import directly from result (backend/result.py).
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  SUMMARY TABLE
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  ID    Severity  File(s)                              Issue
+  ----  --------  -----------------------------------  ---------------------------
+  C-1   CRITICAL  check_runner.py                      Wrong import dir: checks/ vs check/
+  C-2   CRITICAL  cvim/ocp/host_checks.py              Section → SectionResult
+  C-3   CRITICAL  cvim/ocp/host_checks.py              AppConfig → AppSettings, config → core.inventory
+  C-4   CRITICAL  host_checks.py                       SSHCred does not exist
+  C-5   CRITICAL  check_runner.py                      _build_checker missing logger + console
+  C-6   CRITICAL  check_runner.py                      HostHealthChecker called with wrong args
+  C-7   CRITICAL  check_runner.py → host_checks.py     List[NodeConfig] passed as List[str]
+  C-8   CRITICAL  host_checks.py                       SSHClient given NodeConfig/SSHCred objects
+  H-1   HIGH      check_runner.py + checkers            _wire_section never called — streaming dead
+  H-2   HIGH      reporter_html.py                     s.worst_status → s.status
+  H-3   HIGH      reporter_html.py                     bare `from result import` fails in frontend
+  H-4   HIGH      host_checks.py                       `dp -a` → `docker ps`
+  H-5   HIGH      ssh_client.py + core/ssh.py          Two conflicting SSHClient classes
+  H-6   HIGH      ocp_checks.py                        _check_certs: up to 160 sequential awaits
+  M-1   MEDIUM    frontend/core/config.py + main.py    clusters vs cluster key mismatch
+  M-2   MEDIUM    frontend/app.py                      Race condition on backend startup
+  M-3   MEDIUM    backend/result.py + frontend copy    Duplicate result.py with no sync
+  M-4   MEDIUM    cvim_checks.py                       Agent threshold hardcoded, silent on error
+  M-5   MEDIUM    cvim_checks.py                       _check_vms PASS + FAIL can fire together
+  N-1   MINOR     ocp_checks.py                        want_s/have_s names are backwards
+  N-2   MINOR     check_runner.py                      ClusterResult imported but unused
+  N-3   MINOR     core/models.py                       Unused re-export shim
+
+  Total: 22 issues
+  Files affected: 8 source files across backend/ and frontend/
+
+================================================================================
+  End of Report
+==========
