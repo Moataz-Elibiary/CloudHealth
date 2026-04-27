@@ -1,7 +1,7 @@
 """
 Beta4 canonical result model.
 Single source of truth — copied to frontend/core/result.py during SFTP push.
-Section._push() provides per-check-item streaming via an asyncio.Queue.
+SectionResult._push() provides per-check-item streaming via an asyncio.Queue.
 """
 from __future__ import annotations
 import asyncio
