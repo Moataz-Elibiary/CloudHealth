@@ -6,7 +6,7 @@ from typing import List
 import logging
 
 from config import SSHCred, AppConfig
-from result import Section, Status
+from result import SectionResult, Status
 from ssh_client import SSHClient
 
 
@@ -22,14 +22,14 @@ class HostHealthChecker:
 
     # ── parallel runner ───────────────────────────────────────────────────────
 
-    async def run(self) -> List[Section]:
+    async def run(self) -> List[SectionResult]:
         sem   = asyncio.Semaphore(self.app.max_parallel_nodes)
         tasks = [self._check_node_guarded(n, sem) for n in self.nodes]
         results = await asyncio.gather(*tasks, return_exceptions=True)
         sections = []
         for node, res in zip(self.nodes, results):
             if isinstance(res, Exception):
-                s = Section(f"Host: {node}", "host", start_time=datetime.now())
+                s = SectionResult(f"Host: {node}", "host", start_time=datetime.now())
                 s.error(f"Exception: {res}")
                 s.end_time = datetime.now()
                 sections.append(s)
@@ -37,14 +37,14 @@ class HostHealthChecker:
                 sections.append(res)
         return sections
 
-    async def _check_node_guarded(self, node: str, sem: asyncio.Semaphore) -> Section:
+    async def _check_node_guarded(self, node: str, sem: asyncio.Semaphore) -> SectionResult:
         async with sem:
             return await self._check_node(node)
 
     # ── per-node ──────────────────────────────────────────────────────────────
 
-    async def _check_node(self, node: str) -> Section:
-        sec = Section(f"Host: {node}", "host", start_time=datetime.now())
+    async def _check_node(self, node: str) -> SectionResult:
+        sec = SectionResult(f"Host: {node}", "host", start_time=datetime.now())
         self.con.section_start(f"Host: {node}")
         ssh = SSHClient(node, self.cred, timeout=self.app.ssh_timeout, logger=self.log)
         try:
@@ -85,7 +85,7 @@ class HostHealthChecker:
         self.con.section_done(sec)
         return sec
 
-    async def _r(self, ssh: SSHClient, sec: Section, cmd: str, timeout: int = 30):
+    async def _r(self, ssh: SSHClient, sec: SectionResult, cmd: str, timeout: int = 30):
         r = await ssh.run(cmd, timeout=timeout)
         sec.append_log(f"$ {cmd}\n{r.stdout}{r.stderr}\n")
         return r

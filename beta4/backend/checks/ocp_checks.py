@@ -6,7 +6,7 @@ from typing import List, Optional
 import logging
 
 from config import ClusterConfig, AppConfig, resolve_threshold
-from result import Section, Status
+from result import SectionResult, Status
 from ssh_client import SSHClient
 
 
@@ -32,7 +32,7 @@ class OCPHealthChecker:
         self.log.debug(f"[{self.c.name}] oc {cmd[:70]} rc={r.exit_code}")
         return r
 
-    async def _lc(self, sec: Section, cmd: str, timeout: int = None) -> 'CmdResult':
+    async def _lc(self, sec: SectionResult, cmd: str, timeout: int = None) -> 'CmdResult':
         r = await self.ssh.run(cmd, timeout=timeout or self.app.cmd_timeout)
         sec.append_log(f"$ {cmd}\n{r.stdout}{r.stderr}\n")
         return r
@@ -45,7 +45,7 @@ class OCPHealthChecker:
 
     # ── section runner ────────────────────────────────────────────────────────
 
-    async def run(self) -> List[Section]:
+    async def run(self) -> List[SectionResult]:
         checks = [
             ("version",       "Cluster Version & API Server",        self._check_version),
             ("operators",     "Cluster Operators",                    self._check_operators),
@@ -79,7 +79,7 @@ class OCPHealthChecker:
         for cat, name, fn in checks:
             if not self._should(cat):
                 continue
-            sec = Section(name, cat, start_time=datetime.now())
+            sec = SectionResult(name, cat, start_time=datetime.now())
             self.con.section_start(name)
             try:
                 await fn(sec)
@@ -99,7 +99,7 @@ class OCPHealthChecker:
     # ══════════════════════════════════════════════════════════════════════════
     #  1. Cluster version
     # ══════════════════════════════════════════════════════════════════════════
-    async def _check_version(self, sec: Section):
+    async def _check_version(self, sec: SectionResult):
         r = await self._lc(sec, "oc version")
         if r.exit_code != 0:
             sec.fail("Cannot reach API server", detail=r.stderr, command="oc version"); return
@@ -130,7 +130,7 @@ class OCPHealthChecker:
     # ══════════════════════════════════════════════════════════════════════════
     #  2. Cluster operators
     # ══════════════════════════════════════════════════════════════════════════
-    async def _check_operators(self, sec: Section):
+    async def _check_operators(self, sec: SectionResult):
         r = await self._lc(sec, "oc get clusteroperators --no-headers")
         lines = self._lines(r.out)
         total = len(lines)
@@ -150,7 +150,7 @@ class OCPHealthChecker:
     # ══════════════════════════════════════════════════════════════════════════
     #  3. Nodes
     # ══════════════════════════════════════════════════════════════════════════
-    async def _check_nodes(self, sec: Section):
+    async def _check_nodes(self, sec: SectionResult):
         r = await self._lc(sec, "oc get nodes --no-headers -o wide")
         lines = self._lines(r.out)
         total = len(lines)
@@ -170,7 +170,7 @@ class OCPHealthChecker:
     # ══════════════════════════════════════════════════════════════════════════
     #  4. Resource pressure
     # ══════════════════════════════════════════════════════════════════════════
-    async def _check_pressure(self, sec: Section):
+    async def _check_pressure(self, sec: SectionResult):
         r = await self._lc(sec, "oc get nodes -o json", timeout=90)
         if r.exit_code != 0:
             sec.warn("Cannot retrieve node JSON", detail=r.stderr); return
@@ -192,7 +192,7 @@ class OCPHealthChecker:
     # ══════════════════════════════════════════════════════════════════════════
     #  5. Node disk (via oc debug — best-effort, OCP nodes)
     # ══════════════════════════════════════════════════════════════════════════
-    async def _check_node_disk(self, sec: Section):
+    async def _check_node_disk(self, sec: SectionResult):
         thr = self._thr("disk_threshold")
         nodes = self._nodes or await self.discover_nodes()
         if not nodes:
@@ -223,7 +223,7 @@ class OCPHealthChecker:
     # ══════════════════════════════════════════════════════════════════════════
     #  6. etcd
     # ══════════════════════════════════════════════════════════════════════════
-    async def _check_etcd(self, sec: Section):
+    async def _check_etcd(self, sec: SectionResult):
         r = await self._lc(sec, "oc get pods -n openshift-etcd -l app=etcd --no-headers -o wide")
         lines = self._lines(r.out)
         total = len(lines)
@@ -260,7 +260,7 @@ class OCPHealthChecker:
     # ══════════════════════════════════════════════════════════════════════════
     #  7. Control-plane pods
     # ══════════════════════════════════════════════════════════════════════════
-    async def _check_controlplane(self, sec: Section):
+    async def _check_controlplane(self, sec: SectionResult):
         nss = ["openshift-apiserver","openshift-controller-manager",
                "openshift-kube-apiserver","openshift-kube-controller-manager",
                "openshift-kube-scheduler","openshift-authentication"]
@@ -279,7 +279,7 @@ class OCPHealthChecker:
     # ══════════════════════════════════════════════════════════════════════════
     #  8. Ceph / ODF
     # ══════════════════════════════════════════════════════════════════════════
-    async def _check_ceph(self, sec: Section):
+    async def _check_ceph(self, sec: SectionResult):
         odf_ns = None
         for ns in ("openshift-storage","rook-ceph"):
             r = await self.ssh.run(f"oc get ns {ns} 2>/dev/null", timeout=15)
@@ -330,7 +330,7 @@ class OCPHealthChecker:
     # ══════════════════════════════════════════════════════════════════════════
     #  9. PVCs
     # ══════════════════════════════════════════════════════════════════════════
-    async def _check_pvcs(self, sec: Section):
+    async def _check_pvcs(self, sec: SectionResult):
         r = await self._lc(sec, "oc get pvc -A --no-headers")
         lines = self._lines(r.out)
         total = len(lines)
@@ -344,7 +344,7 @@ class OCPHealthChecker:
     # ══════════════════════════════════════════════════════════════════════════
     #  10. Storage classes
     # ══════════════════════════════════════════════════════════════════════════
-    async def _check_storageclasses(self, sec: Section):
+    async def _check_storageclasses(self, sec: SectionResult):
         r = await self._lc(sec, "oc get sc --no-headers")
         lines = self._lines(r.out)
         if not lines:
@@ -361,7 +361,7 @@ class OCPHealthChecker:
     # ══════════════════════════════════════════════════════════════════════════
     #  11. Pods audit
     # ══════════════════════════════════════════════════════════════════════════
-    async def _check_pods(self, sec: Section):
+    async def _check_pods(self, sec: SectionResult):
         rw = self._thr("restart_warn_threshold")
         rf = self._thr("restart_fail_threshold")
         aw = self._thr("pod_age_min_warn")
@@ -422,7 +422,7 @@ class OCPHealthChecker:
     # ══════════════════════════════════════════════════════════════════════════
     #  12. Deployments & StatefulSets
     # ══════════════════════════════════════════════════════════════════════════
-    async def _check_deployments(self, sec: Section):
+    async def _check_deployments(self, sec: SectionResult):
         for kind in ("deployment","statefulset"):
             r = await self._lc(sec, f"oc get {kind} -A --no-headers")
             lines = self._lines(r.out)
@@ -448,7 +448,7 @@ class OCPHealthChecker:
     # ══════════════════════════════════════════════════════════════════════════
     #  13. DaemonSets
     # ══════════════════════════════════════════════════════════════════════════
-    async def _check_daemonsets(self, sec: Section):
+    async def _check_daemonsets(self, sec: SectionResult):
         r = await self._lc(sec, "oc get daemonset -A --no-headers")
         lines = self._lines(r.out)
         bad = []
@@ -467,7 +467,7 @@ class OCPHealthChecker:
     # ══════════════════════════════════════════════════════════════════════════
     #  14. Jobs & CronJobs
     # ══════════════════════════════════════════════════════════════════════════
-    async def _check_jobs(self, sec: Section):
+    async def _check_jobs(self, sec: SectionResult):
         r = await self._lc(sec, "oc get jobs -A --no-headers 2>/dev/null | grep -v ' 1/1 ' | head -20 || true")
         lines = self._lines(r.out)
         if not lines:
@@ -482,7 +482,7 @@ class OCPHealthChecker:
     # ══════════════════════════════════════════════════════════════════════════
     #  15. HPA
     # ══════════════════════════════════════════════════════════════════════════
-    async def _check_hpa(self, sec: Section):
+    async def _check_hpa(self, sec: SectionResult):
         r = await self._lc(sec, "oc get hpa -A --no-headers 2>/dev/null || true")
         lines = self._lines(r.out)
         if not lines:
@@ -507,7 +507,7 @@ class OCPHealthChecker:
     # ══════════════════════════════════════════════════════════════════════════
     #  16. Network / CNI / DNS
     # ══════════════════════════════════════════════════════════════════════════
-    async def _check_network(self, sec: Section):
+    async def _check_network(self, sec: SectionResult):
         # Network operator
         r = await self._lc(sec, "oc get co network --no-headers 2>/dev/null || true")
         if r.out and "True" in r.out:
@@ -540,7 +540,7 @@ class OCPHealthChecker:
     # ══════════════════════════════════════════════════════════════════════════
     #  17. Ingress / Routes
     # ══════════════════════════════════════════════════════════════════════════
-    async def _check_ingress(self, sec: Section):
+    async def _check_ingress(self, sec: SectionResult):
         r = await self._lc(sec, "oc get ingresscontroller -n openshift-ingress-operator --no-headers 2>/dev/null || true")
         lines = self._lines(r.out)
         if not lines:
@@ -564,7 +564,7 @@ class OCPHealthChecker:
     # ══════════════════════════════════════════════════════════════════════════
     #  18. Warning events
     # ══════════════════════════════════════════════════════════════════════════
-    async def _check_events(self, sec: Section):
+    async def _check_events(self, sec: SectionResult):
         r = await self._lc(sec, "oc get events -A --field-selector type=Warning --no-headers 2>/dev/null | "
                                  "sort -k1,1 -k6,6rn | head -30 || true", timeout=30)
         lines = self._lines(r.out)
@@ -576,7 +576,7 @@ class OCPHealthChecker:
     # ══════════════════════════════════════════════════════════════════════════
     #  19. Certificates
     # ══════════════════════════════════════════════════════════════════════════
-    async def _check_certs(self, sec: Section):
+    async def _check_certs(self, sec: SectionResult):
         warn_days = self.app.cert_warn_days
         r = await self._lc(sec, "oc get secret -A --field-selector type=kubernetes.io/tls "
                                  "--no-headers -o custom-columns=NS:.metadata.namespace,NAME:.metadata.name",
@@ -609,7 +609,7 @@ class OCPHealthChecker:
     # ══════════════════════════════════════════════════════════════════════════
     #  20. MachineConfigPool
     # ══════════════════════════════════════════════════════════════════════════
-    async def _check_mcp(self, sec: Section):
+    async def _check_mcp(self, sec: SectionResult):
         r = await self._lc(sec, "oc get mcp --no-headers")
         lines = self._lines(r.out)
         bad = []
@@ -624,7 +624,7 @@ class OCPHealthChecker:
     # ══════════════════════════════════════════════════════════════════════════
     #  21. Node OS & upgrade
     # ══════════════════════════════════════════════════════════════════════════
-    async def _check_node_os(self, sec: Section):
+    async def _check_node_os(self, sec: SectionResult):
         r = await self._lc(sec, "oc get nodes -o jsonpath='{range .items[*]}{.metadata.name} "
                                  "{.status.nodeInfo.osImage} {.status.nodeInfo.kernelVersion}\\n{end}'")
         lines = self._lines(r.out)
@@ -649,7 +649,7 @@ class OCPHealthChecker:
     # ══════════════════════════════════════════════════════════════════════════
     #  22. Resource quotas
     # ══════════════════════════════════════════════════════════════════════════
-    async def _check_quotas(self, sec: Section):
+    async def _check_quotas(self, sec: SectionResult):
         r = await self._lc(sec, "oc get resourcequota -A --no-headers 2>/dev/null | head -20 || true")
         lines = self._lines(r.out)
         if not lines:
@@ -662,7 +662,7 @@ class OCPHealthChecker:
     # ══════════════════════════════════════════════════════════════════════════
     #  23. RBAC / SCC
     # ══════════════════════════════════════════════════════════════════════════
-    async def _check_rbac(self, sec: Section):
+    async def _check_rbac(self, sec: SectionResult):
         # Check for privileged SCC usage
         r = await self._lc(sec, "oc get pods -A -o jsonpath='{range .items[?(@.metadata.annotations.openshift\\.io/scc==\"privileged\")]}{.metadata.namespace}/{.metadata.name}\\n{end}' 2>/dev/null | head -20 || true")
         lines = self._lines(r.out)
@@ -679,7 +679,7 @@ class OCPHealthChecker:
     # ══════════════════════════════════════════════════════════════════════════
     #  24. Prometheus alerts
     # ══════════════════════════════════════════════════════════════════════════
-    async def _check_alerts(self, sec: Section):
+    async def _check_alerts(self, sec: SectionResult):
         r = await self.ssh.run(
             "oc get pods -n openshift-monitoring --no-headers 2>/dev/null | grep thanos-query | grep Running | head -1 | awk '{print $1}'", timeout=20)
         thanos = r.out.strip()
@@ -721,7 +721,7 @@ class OCPHealthChecker:
     # ══════════════════════════════════════════════════════════════════════════
     #  25. Cluster Logging
     # ══════════════════════════════════════════════════════════════════════════
-    async def _check_logging(self, sec: Section):
+    async def _check_logging(self, sec: SectionResult):
         for ns in ("openshift-logging", "openshift-operators-redhat"):
             r = await self.ssh.run(f"oc get ns {ns} 2>/dev/null", timeout=10)
             if r.exit_code == 0:
@@ -736,7 +736,7 @@ class OCPHealthChecker:
     # ══════════════════════════════════════════════════════════════════════════
     #  26. Image registry
     # ══════════════════════════════════════════════════════════════════════════
-    async def _check_imageregistry(self, sec: Section):
+    async def _check_imageregistry(self, sec: SectionResult):
         r = await self._lc(sec, "oc get co image-registry --no-headers 2>/dev/null || true")
         if not r.out:
             sec.warn("image-registry cluster operator not found"); return
@@ -752,7 +752,7 @@ class OCPHealthChecker:
     # ══════════════════════════════════════════════════════════════════════════
     #  27. ETCD Backup
     # ══════════════════════════════════════════════════════════════════════════
-    async def _check_etcd_backup(self, sec: Section):
+    async def _check_etcd_backup(self, sec: SectionResult):
         r = await self._lc(sec, "oc get etcdbackup -A --no-headers --sort-by=.metadata.creationTimestamp 2>/dev/null | tail -5 || true")
         if not r.out:
             sec.warn("No EtcdBackup resources found (backup may not be configured via operator)")

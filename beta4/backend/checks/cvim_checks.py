@@ -6,7 +6,7 @@ from typing import List, Optional
 import logging
 
 from config import ClusterConfig, AppConfig, resolve_threshold
-from result import Section, Status
+from result import SectionResult, Status
 from ssh_client import SSHClient
 
 
@@ -27,7 +27,7 @@ class CVIMHealthChecker:
     async def _run(self, cmd: str, timeout: int = None):
         return await self.ssh.run(cmd, timeout=timeout or self.app.cmd_timeout)
 
-    async def _lc(self, sec: Section, cmd: str, timeout: int = None):
+    async def _lc(self, sec: SectionResult, cmd: str, timeout: int = None):
         r = await self.ssh.run(cmd, timeout=timeout or self.app.cmd_timeout)
         sec.append_log(f"$ {cmd}\n{r.stdout}{r.stderr}\n")
         return r
@@ -44,7 +44,7 @@ class CVIMHealthChecker:
 
     # ── section runner ────────────────────────────────────────────────────────
 
-    async def run(self) -> List[Section]:
+    async def run(self) -> List[SectionResult]:
         checks = [
             ("hypervisors",   "Hypervisor Status",                    self._check_hypervisors),
             ("network",       "Network Agents",                       self._check_network_agents),
@@ -70,7 +70,7 @@ class CVIMHealthChecker:
         for cat, name, fn in checks:
             if not self._should(cat):
                 continue
-            sec = Section(name, cat, start_time=datetime.now())
+            sec = SectionResult(name, cat, start_time=datetime.now())
             self.con.section_start(name)
             try:
                 await fn(sec)
@@ -90,7 +90,7 @@ class CVIMHealthChecker:
     # ══════════════════════════════════════════════════════════════════════════
     #  1. Hypervisors
     # ══════════════════════════════════════════════════════════════════════════
-    async def _check_hypervisors(self, sec: Section):
+    async def _check_hypervisors(self, sec: SectionResult):
         r_cfg = await self._lc(sec, "ciscovim list-nodes 2>/dev/null | grep -c compute || echo 0")
         r_up  = await self._lc(sec, self._os(
             "openstack hypervisor list -f value -c 'State' -c 'Status' 2>/dev/null | grep -c 'up enabled' || echo 0"))
@@ -119,7 +119,7 @@ class CVIMHealthChecker:
     # ══════════════════════════════════════════════════════════════════════════
     #  2. Network agents
     # ══════════════════════════════════════════════════════════════════════════
-    async def _check_network_agents(self, sec: Section):
+    async def _check_network_agents(self, sec: SectionResult):
         r_cfg = await self._run("ciscovim list-nodes 2>/dev/null | grep -c compute || echo 0")
         try:
             hv = int(r_cfg.out.strip())
@@ -144,7 +144,7 @@ class CVIMHealthChecker:
     # ══════════════════════════════════════════════════════════════════════════
     #  3. Volume services
     # ══════════════════════════════════════════════════════════════════════════
-    async def _check_volume_services(self, sec: Section):
+    async def _check_volume_services(self, sec: SectionResult):
         r = await self._lc(sec, self._os(
             "openstack volume service list -f value -c 'Binary' -c 'Host' -c 'Status' -c 'State' 2>/dev/null"))
         lines = self._lines(r.out)
@@ -165,7 +165,7 @@ class CVIMHealthChecker:
     # ══════════════════════════════════════════════════════════════════════════
     #  4. Nova compute services
     # ══════════════════════════════════════════════════════════════════════════
-    async def _check_compute_services(self, sec: Section):
+    async def _check_compute_services(self, sec: SectionResult):
         r = await self._lc(sec, self._os(
             "openstack compute service list -f value -c 'Binary' -c 'Host' -c 'Status' -c 'State' 2>/dev/null"))
         lines = self._lines(r.out)
@@ -182,7 +182,7 @@ class CVIMHealthChecker:
     # ══════════════════════════════════════════════════════════════════════════
     #  5. Keystone
     # ══════════════════════════════════════════════════════════════════════════
-    async def _check_identity(self, sec: Section):
+    async def _check_identity(self, sec: SectionResult):
         r = await self._lc(sec, self._os("openstack token issue -f value -c 'id' 2>/dev/null | head -c 20 || echo FAIL"))
         if "FAIL" in r.out or r.exit_code != 0:
             sec.fail("Keystone token issue failed — identity service may be down", detail=r.stderr[:300])
@@ -205,7 +205,7 @@ class CVIMHealthChecker:
     # ══════════════════════════════════════════════════════════════════════════
     #  6. Glance
     # ══════════════════════════════════════════════════════════════════════════
-    async def _check_image_service(self, sec: Section):
+    async def _check_image_service(self, sec: SectionResult):
         r = await self._lc(sec, self._os(
             "openstack image list -f value -c 'Status' 2>/dev/null | sort | uniq -c | sort -rn | head -5"))
         if r.exit_code != 0:
@@ -223,7 +223,7 @@ class CVIMHealthChecker:
     # ══════════════════════════════════════════════════════════════════════════
     #  7. Cloudpulse
     # ══════════════════════════════════════════════════════════════════════════
-    async def _check_cloudpulse(self, sec: Section):
+    async def _check_cloudpulse(self, sec: SectionResult):
         r = await self._lc(sec, "cloudpulse result 2>/dev/null || true", timeout=90)
         if not r.out.strip():
             sec.warn("Cloudpulse returned no output (may not be configured)"); return
@@ -235,7 +235,7 @@ class CVIMHealthChecker:
     # ══════════════════════════════════════════════════════════════════════════
     #  8. VMs — count & state overview
     # ══════════════════════════════════════════════════════════════════════════
-    async def _check_vms(self, sec: Section):
+    async def _check_vms(self, sec: SectionResult):
         r = await self._lc(sec, self._os(
             "openstack server list --all-projects -f value -c 'Status' 2>/dev/null | "
             "sort | uniq -c | sort -rn"), timeout=120)
@@ -255,7 +255,7 @@ class CVIMHealthChecker:
     # ══════════════════════════════════════════════════════════════════════════
     #  9. VM errors — detailed audit
     # ══════════════════════════════════════════════════════════════════════════
-    async def _check_vm_errors(self, sec: Section):
+    async def _check_vm_errors(self, sec: SectionResult):
         r = await self._lc(sec, self._os(
             "openstack server list --all-projects --status ERROR -f value "
             "-c 'Name' -c 'ID' -c 'Host' -c 'Status' 2>/dev/null | head -25"), timeout=120)
@@ -275,7 +275,7 @@ class CVIMHealthChecker:
     # ══════════════════════════════════════════════════════════════════════════
     #  10. RabbitMQ
     # ══════════════════════════════════════════════════════════════════════════
-    async def _check_rabbitmq(self, sec: Section):
+    async def _check_rabbitmq(self, sec: SectionResult):
         # Find rabbit_api.py
         r0 = await self._lc(sec, "ls /root/installer-*/tools/rabbit_api.py 2>/dev/null | head -1")
         script = r0.out.strip()
@@ -306,7 +306,7 @@ class CVIMHealthChecker:
     # ══════════════════════════════════════════════════════════════════════════
     #  11. MariaDB / Galera
     # ══════════════════════════════════════════════════════════════════════════
-    async def _check_mariadb(self, sec: Section):
+    async def _check_mariadb(self, sec: SectionResult):
         r = await self._lc(sec,
             "docker exec mariadb mysql -u root -e 'SHOW STATUS LIKE \"wsrep%\";' 2>/dev/null || "
             "podman exec mariadb mysql -u root -e 'SHOW STATUS LIKE \"wsrep%\";' 2>/dev/null || "
@@ -329,7 +329,7 @@ class CVIMHealthChecker:
     # ══════════════════════════════════════════════════════════════════════════
     #  12. Memcached
     # ══════════════════════════════════════════════════════════════════════════
-    async def _check_memcached(self, sec: Section):
+    async def _check_memcached(self, sec: SectionResult):
         r = await self._lc(sec,
             "echo 'stats' | nc -w 2 localhost 11211 2>/dev/null | grep -E 'uptime|curr_connections|version' | head -5 || "
             "docker exec memcached sh -c 'echo stats | nc -w 2 localhost 11211' 2>/dev/null | head -5 || "
@@ -347,7 +347,7 @@ class CVIMHealthChecker:
     # ══════════════════════════════════════════════════════════════════════════
     #  13. Container status per node type
     # ══════════════════════════════════════════════════════════════════════════
-    async def _check_containers(self, sec: Section):
+    async def _check_containers(self, sec: SectionResult):
         for node_type in ("control", "compute", "storage"):
             r_nodes = await self._run(
                 f"ciscovim list-nodes 2>/dev/null | grep {node_type} | awk '{{print $2}}'")
@@ -382,7 +382,7 @@ class CVIMHealthChecker:
     # ══════════════════════════════════════════════════════════════════════════
     #  14. Ceph status
     # ══════════════════════════════════════════════════════════════════════════
-    async def _check_ceph(self, sec: Section):
+    async def _check_ceph(self, sec: SectionResult):
         for cmd in [
             "rgac 'cephmon ceph -s' 2>/dev/null",
             "ssh -o StrictHostKeyChecking=no cephmon 'ceph -s' 2>/dev/null",
@@ -415,7 +415,7 @@ class CVIMHealthChecker:
     # ══════════════════════════════════════════════════════════════════════════
     #  15. Ceph pool health
     # ══════════════════════════════════════════════════════════════════════════
-    async def _check_ceph_pools(self, sec: Section):
+    async def _check_ceph_pools(self, sec: SectionResult):
         for cmd in [
             "rgac 'cephmon ceph osd pool ls detail' 2>/dev/null",
             "ssh -o StrictHostKeyChecking=no cephmon 'ceph osd pool ls detail' 2>/dev/null",
@@ -453,7 +453,7 @@ class CVIMHealthChecker:
     # ══════════════════════════════════════════════════════════════════════════
     #  16. OVS networking
     # ══════════════════════════════════════════════════════════════════════════
-    async def _check_ovs(self, sec: Section):
+    async def _check_ovs(self, sec: SectionResult):
         r = await self._lc(sec,
             "docker exec neutron_ovs_agent ovs-vsctl show 2>/dev/null | head -20 || "
             "podman exec neutron_ovs_agent ovs-vsctl show 2>/dev/null | head -20 || "
@@ -474,7 +474,7 @@ class CVIMHealthChecker:
     # ══════════════════════════════════════════════════════════════════════════
     #  17. HAProxy / VIP
     # ══════════════════════════════════════════════════════════════════════════
-    async def _check_haproxy(self, sec: Section):
+    async def _check_haproxy(self, sec: SectionResult):
         r = await self._lc(sec,
             "docker exec haproxy_config haproxy -c -f /etc/haproxy/haproxy.cfg 2>/dev/null | head -3 || "
             "podman exec haproxy_config haproxy -c -f /etc/haproxy/haproxy.cfg 2>/dev/null | head -3 || true",
@@ -497,7 +497,7 @@ class CVIMHealthChecker:
     # ══════════════════════════════════════════════════════════════════════════
     #  18. NFS / external storage
     # ══════════════════════════════════════════════════════════════════════════
-    async def _check_nfs(self, sec: Section):
+    async def _check_nfs(self, sec: SectionResult):
         r = await self._lc(sec,
             "showmount -e localhost 2>/dev/null | head -10 || "
             "cat /etc/exports 2>/dev/null | grep -v '^#' | head -10 || true", timeout=15)
@@ -513,7 +513,7 @@ class CVIMHealthChecker:
     # ══════════════════════════════════════════════════════════════════════════
     #  19. CVIM installer & management
     # ══════════════════════════════════════════════════════════════════════════
-    async def _check_installer(self, sec: Section):
+    async def _check_installer(self, sec: SectionResult):
         # CVIM version
         r = await self._lc(sec, "ciscovim --version 2>/dev/null || cat /root/installer-*/version.txt 2>/dev/null | head -2 || true")
         if r.out:
