@@ -80,6 +80,8 @@ class OCPHealthChecker:
             if not self._should(cat):
                 continue
             sec = Section(name, cat, start_time=datetime.now())
+            if hasattr(self, '_wire_section'):
+                sec = self._wire_section(sec)
             self.con.section_start(name)
             try:
                 await fn(sec)
@@ -431,11 +433,11 @@ class OCPHealthChecker:
                 parts = l.split()
                 # NAMESPACE NAME READY UP-TO-DATE AVAILABLE ...
                 if len(parts) >= 4:
-                    ready_str = parts[2]  # e.g. "2/3"
+                    ready_str = parts[2]  # e.g. "2/3" = ready/desired
                     if "/" in ready_str:
-                        want_s, have_s = ready_str.split("/", 1)
+                        ready, desired = ready_str.split("/", 1)
                         try:
-                            if int(want_s) < int(have_s): bad.append(l.strip())
+                            if int(ready) < int(desired): bad.append(l.strip())
                         except ValueError:
                             pass
             total = len(lines)

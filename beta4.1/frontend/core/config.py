@@ -3,11 +3,6 @@ Beta4 frontend/core/config.py
 
 Uses Beta3's InventoryLoader (pandas + HEADER_ALIASES) exposed via
 a thin ConfigLoader subclass.
-
-Key addition: to_backend_dict() sanitises SSH credentials for clusters
-whose installer_ip does not match the current bastion being tunnelled —
-sending all credentials to all bastions is a security hole both prior
-betas shared.
 """
 from __future__ import annotations
 import sys
@@ -98,20 +93,3 @@ class _AppConfig:
 
     def __getattr__(self, name):
         return getattr(self._settings, name)
-
-    def to_backend_dict(self, current_bastion_ip: str = "") -> dict:
-        """
-        Serialise config for the WebSocket payload sent to one bastion.
-
-        Credential sanitisation: only include ssh credentials for the cluster
-        whose installer_ip matches current_bastion_ip. All other clusters have
-        their passwords/keys stripped to prevent credential exposure.
-        """
-        settings_dict = self._settings.to_dict()
-        clusters_out  = []
-        for c in self.clusters:
-            is_current = (not current_bastion_ip or
-                          c.installer_ip == current_bastion_ip)
-            clusters_out.append(c.to_dict(sanitize=not is_current))
-
-        return {**settings_dict, "clusters": clusters_out}

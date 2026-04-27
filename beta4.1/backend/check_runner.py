@@ -11,6 +11,7 @@ The on_headline and on_result callbacks are async; the runner awaits them.
 """
 from __future__ import annotations
 import asyncio
+import logging
 from datetime import datetime
 from typing import Callable, Optional, Set
 
@@ -21,6 +22,12 @@ from core.inventory import AppSettings, ClusterConfig, NodeConfig
 from checks.cvim_checks import CVIMHealthChecker
 from checks.host_checks  import HostHealthChecker
 from checks.ocp_checks   import OCPHealthChecker
+
+
+class _NullConsole:
+    """No-op console used when no rich/curses UI is attached (backend mode)."""
+    def section_start(self, name): pass
+    def section_done(self, sec): pass
 
 HOST_CHECK_IDS = {
     "host", "uptime", "os_info", "cpu", "memory", "disk", "ecc",
@@ -53,6 +60,8 @@ class CheckRunner:
         self.subscriber_queue = subscriber_queue
         self.client           = LocalClient(
             self.cluster.installer_ip, self.cluster.ssh_user)
+        self.log = logging.getLogger(f"cloud_health.{self.cluster.name}")
+        self.con = _NullConsole()
 
     def _wire(self, sec: SectionResult) -> SectionResult:
         """Wire queue and cluster name onto a section BEFORE running fn()."""
@@ -123,17 +132,19 @@ class CheckRunner:
     def _build_checker(self):
         if self.cluster.type == "ocp":
             return OCPHealthChecker(
-                ssh            = self.client,
-                app            = self.app,
-                cluster        = self.cluster,
-                enabled_checks = self.enabled_checks,
+                ssh     = self.client,
+                app     = self.app,
+                cluster = self.cluster,
+                logger  = self.log,
+                console = self.con,
             )
         if self.cluster.type == "cvim":
             return CVIMHealthChecker(
-                ssh            = self.client,
-                app            = self.app,
-                cluster        = self.cluster,
-                enabled_checks = self.enabled_checks,
+                ssh     = self.client,
+                app     = self.app,
+                cluster = self.cluster,
+                logger  = self.log,
+                console = self.con,
             )
         raise ValueError(f"Unsupported cluster type: {self.cluster.type!r}")
 

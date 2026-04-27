@@ -71,6 +71,8 @@ class CVIMHealthChecker:
             if not self._should(cat):
                 continue
             sec = Section(name, cat, start_time=datetime.now())
+            if hasattr(self, '_wire_section'):
+                sec = self._wire_section(sec)
             self.con.section_start(name)
             try:
                 await fn(sec)
@@ -125,6 +127,8 @@ class CVIMHealthChecker:
             hv = int(r_cfg.out.strip())
         except Exception:
             hv = 0
+        if hv == 0:
+            sec.warn("Could not determine hypervisor count — using minimum agent threshold of 12")
         required = hv * 2 + 12
         r = await self._lc(sec, self._os(
             "openstack network agent list -f value -c 'Agent Type' -c 'Host' -c 'Alive' -c 'State' 2>/dev/null"))
