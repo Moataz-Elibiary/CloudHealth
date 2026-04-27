@@ -1,0 +1,648 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>CloudHealth Beta 4</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+:root {
+  --primary:#6366f1; --primary-h:#4f46e5;
+  --bg-a:#0f172a; --bg-b:#1e1b4b;
+  --glass:rgba(30,41,59,0.45);
+  --glass-b:rgba(255,255,255,0.09);
+  --shadow:0 8px 32px rgba(0,0,0,0.38);
+  --text:#f8fafc; --dim:#94a3b8;
+  --pass:#22c55e; --fail:#ef4444; --warn:#f59e0b; --info:#60a5fa;
+  --r:14px; --mono:'JetBrains Mono',monospace;
+}
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+body{font-family:'Inter',system-ui,sans-serif;background:linear-gradient(135deg,var(--bg-a) 0%,var(--bg-b) 100%);background-attachment:fixed;color:var(--text);display:flex;height:100vh;overflow:hidden;-webkit-font-smoothing:antialiased}
+
+/* ── SIDEBAR ── */
+.sidebar{width:360px;flex-shrink:0;background:var(--glass);backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);border-right:1px solid var(--glass-b);display:flex;flex-direction:column;overflow:hidden;z-index:10}
+.sidebar-inner{flex:1;overflow-y:auto;padding:1.5rem 1.25rem;display:flex;flex-direction:column;gap:0}
+
+/* logo */
+.logo{margin-bottom:1.75rem}
+.logo h1{font-size:1.9rem;font-weight:800;letter-spacing:-0.03em;background:linear-gradient(135deg,#fff 20%,#818cf8 60%,#c084fc);-webkit-background-clip:text;-webkit-text-fill-color:transparent;line-height:1.1}
+.logo .badge{display:inline-block;padding:.15rem .55rem;border-radius:999px;background:rgba(99,102,241,.15);color:#818cf8;font-size:.6rem;font-weight:700;letter-spacing:.06em;border:1px solid rgba(99,102,241,.25);vertical-align:middle;margin-left:.4rem}
+.logo p{color:var(--dim);font-size:.82rem;margin-top:.3rem;font-weight:500}
+
+/* tabs */
+.tabs{display:flex;border-bottom:1px solid var(--glass-b);margin-bottom:1.25rem}
+.tab{flex:1;padding:.65rem .5rem;text-align:center;font-size:.82rem;font-weight:600;color:var(--dim);border-bottom:2px solid transparent;cursor:pointer;transition:all .2s;user-select:none}
+.tab:hover{color:var(--text)}
+.tab.active{color:var(--primary);border-bottom-color:var(--primary)}
+.tab-content{display:none}.tab-content.active{display:flex;flex-direction:column;gap:.75rem;flex:1}
+
+/* check groups */
+.check-group{border-radius:8px;overflow:hidden;border:1px solid var(--glass-b)}
+.cg-header{display:flex;align-items:center;gap:.5rem;padding:.65rem .9rem;background:rgba(15,23,42,.55);cursor:pointer;user-select:none;transition:background .15s}
+.cg-header:hover{background:rgba(15,23,42,.8)}
+.cg-title{font-size:.8rem;font-weight:600;flex:1}
+.cg-counter{font-size:.62rem;padding:.12rem .4rem;border-radius:999px;background:rgba(99,102,241,.2);color:#818cf8;font-weight:700}
+.cg-links{display:flex;gap:.4rem;font-size:.68rem;color:var(--primary);cursor:pointer;font-weight:600;opacity:.75}
+.cg-links span:hover{opacity:1;text-decoration:underline}
+.chevron{font-size:.62rem;color:var(--dim);transition:transform .25s;margin-left:.2rem}
+.check-group.open .chevron{transform:rotate(180deg)}
+.cg-items{max-height:0;overflow:hidden;transition:max-height .35s ease;background:rgba(0,0,0,.18)}
+.check-group.open .cg-items{max-height:900px;padding:.4rem .9rem}
+.chk-row{display:flex;align-items:center;gap:.65rem;padding:.35rem 0;font-size:.77rem}
+.chk-row input[type=checkbox]{appearance:none;width:15px;height:15px;flex-shrink:0;border:1px solid var(--glass-b);border-radius:3px;background:rgba(15,23,42,.5);cursor:pointer;position:relative}
+.chk-row input:checked{background:var(--primary);border-color:var(--primary)}
+.chk-row input:checked::after{content:'✔';position:absolute;color:#fff;font-size:9px;left:2px;top:0}
+.chk-row label{cursor:pointer;color:var(--dim)}
+.chk-row input:checked+label{color:var(--text)}
+
+/* config panel */
+.cfg-grid{display:grid;grid-template-columns:1fr 1fr;gap:.6rem}
+.cfg-group{display:flex;flex-direction:column;gap:.2rem}
+.cfg-group.full{grid-column:span 2}
+.cfg-label{font-size:.68rem;font-weight:600;color:var(--dim);text-transform:uppercase;letter-spacing:.04em}
+.cfg-input{width:100%;background:rgba(15,23,42,.5);border:1px solid var(--glass-b);color:var(--text);padding:.45rem .6rem;border-radius:6px;font-size:.78rem;font-family:'Inter',sans-serif;transition:border-color .2s}
+.cfg-input:focus{outline:none;border-color:var(--primary)}
+.cfg-section-label{grid-column:span 2;font-size:.72rem;font-weight:700;color:var(--primary);margin-top:.3rem}
+
+/* run button */
+.run-btn{width:100%;padding:.9rem;border:none;border-radius:8px;font-size:1rem;font-weight:700;cursor:pointer;background:linear-gradient(135deg,var(--primary),#8b5cf6);color:#fff;transition:opacity .15s,transform .1s;margin-top:.5rem;font-family:'Inter',sans-serif}
+.run-btn:hover:not(:disabled){opacity:.9;transform:translateY(-1px)}
+.run-btn:disabled{opacity:.4;cursor:not-allowed;transform:none}
+.save-btn{width:100%;padding:.5rem;border:1px solid var(--primary);border-radius:6px;background:transparent;color:var(--text);font-size:.78rem;font-weight:600;cursor:pointer;transition:all .15s;font-family:'Inter',sans-serif}
+.save-btn:hover{background:rgba(99,102,241,.1)}
+.save-ok{font-size:.72rem;color:var(--pass);margin-top:.3rem;display:none}
+.sidebar-footer{padding:1rem 1.25rem;text-align:center;font-size:.68rem;color:var(--dim);opacity:.4;border-top:1px solid var(--glass-b)}
+
+/* ── MAIN ── */
+.main{flex:1;display:flex;flex-direction:column;overflow:hidden}
+.main-inner{flex:1;overflow-y:auto;padding:1.75rem 2rem 3rem}
+
+/* scoreboard */
+.scoreboard{display:grid;grid-template-columns:repeat(5,1fr);gap:.75rem;margin-bottom:1.75rem}
+.sc{background:var(--glass);backdrop-filter:blur(12px);border:1px solid var(--glass-b);border-radius:var(--r);padding:1rem 1.25rem;position:relative;overflow:hidden}
+.sc::before{content:'';position:absolute;top:0;left:0;right:0;height:2px}
+.sc.p::before{background:var(--pass)}.sc.f::before{background:var(--fail)}.sc.w::before{background:var(--warn)}.sc.i::before{background:var(--info)}.sc.n::before{background:var(--dim)}
+.sc-label{font-size:.65rem;color:var(--dim);text-transform:uppercase;letter-spacing:.06em;margin-bottom:.4rem;font-weight:600}
+.sc-val{font-family:var(--mono);font-size:1.9rem;font-weight:600;line-height:1}
+.sc.p .sc-val{color:var(--pass)}.sc.f .sc-val{color:var(--fail)}.sc.w .sc-val{color:var(--warn)}.sc.i .sc-val{color:var(--info)}.sc.n .sc-val{color:var(--text)}
+
+/* filter bar */
+.filter-bar{display:flex;gap:.4rem;margin-bottom:1.25rem;background:var(--glass);padding:.4rem;border-radius:10px;border:1px solid var(--glass-b)}
+.fb{background:transparent;border:none;color:var(--dim);padding:.45rem .9rem;border-radius:7px;cursor:pointer;font-size:.8rem;font-weight:600;transition:all .2s;font-family:'Inter',sans-serif}
+.fb.active{background:rgba(255,255,255,.1);color:var(--text)}
+.fb.active.p{color:var(--pass)}.fb.active.f{color:var(--fail)}.fb.active.w{color:var(--warn)}
+
+/* banners */
+.banner{display:none;margin-bottom:1.25rem;padding:.9rem 1.2rem;border-radius:10px;font-size:.85rem;line-height:1.5;animation:slideIn .25s ease-out}
+@keyframes slideIn{from{opacity:0;transform:translateY(-8px)}to{opacity:1;transform:translateY(0)}}
+.banner.err{background:rgba(239,68,68,.13);border:1px solid rgba(239,68,68,.28);color:#fecaca}
+.banner.ok{background:rgba(16,185,129,.12);border:1px solid rgba(16,185,129,.3);color:#d1fae5;word-break:break-all}
+.banner.show{display:block}
+
+/* cluster cards */
+.cluster-card{background:var(--glass);backdrop-filter:blur(12px);border:1px solid var(--glass-b);border-radius:var(--r);margin-bottom:1rem;overflow:hidden;transition:border-color .2s,box-shadow .2s}
+.cluster-card:hover{border-color:rgba(255,255,255,.16);box-shadow:0 12px 40px rgba(0,0,0,.35)}
+.card-header{display:flex;align-items:center;gap:.75rem;padding:1rem 1.25rem;cursor:pointer;background:rgba(255,255,255,.02)}
+.card-header:hover{background:rgba(255,255,255,.04)}
+.card-type{font-family:var(--mono);font-size:.65rem;font-weight:600;letter-spacing:.1em;padding:.15rem .55rem;border-radius:3px;background:rgba(96,165,250,.12);color:var(--info);border:1px solid rgba(96,165,250,.25)}
+.card-name{font-size:.95rem;font-weight:700}
+.card-counts{margin-left:auto;display:flex;gap:.9rem;font-family:var(--mono);font-size:.78rem;font-weight:600}
+.cc-p{color:var(--pass)}.cc-f{color:var(--fail)}.cc-w{color:var(--warn)}
+.card-dur{font-family:var(--mono);font-size:.68rem;color:var(--dim)}
+
+/* status pill */
+.pill{padding:.18rem .65rem;border-radius:999px;font-size:.65rem;font-weight:700;text-transform:uppercase;letter-spacing:.05em}
+.pill-idle{background:rgba(107,114,128,.18);color:#9ca3af}
+.pill-running,.pill-connecting,.pill-pushing-backend{background:rgba(99,102,241,.2);color:#818cf8;animation:glow 1.8s infinite}
+@keyframes glow{0%,100%{box-shadow:0 0 0 0 rgba(99,102,241,.4)}50%{box-shadow:0 0 0 6px rgba(99,102,241,0)}}
+.pill-pass,.pill-PASS{background:rgba(34,197,94,.18);color:var(--pass)}
+.pill-fail,.pill-FAIL,.pill-error,.pill-ERROR{background:rgba(239,68,68,.18);color:var(--fail)}
+.pill-warn,.pill-WARN{background:rgba(245,158,11,.18);color:var(--warn);color:#111 !important;background:#f59e0b !important}
+
+/* headline zone */
+.headline{margin:.75rem 1.25rem;padding:.6rem .9rem;background:rgba(15,23,42,.6);border-radius:6px;border-left:3px solid var(--primary);font-family:var(--mono);font-size:.78rem;color:#cbd5e1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+
+/* expand/collapse */
+.card-actions{display:flex;justify-content:flex-end;padding:.3rem 1.25rem .75rem}
+.expand-btn{background:transparent;border:1px solid var(--glass-b);color:var(--dim);padding:.3rem .8rem;border-radius:5px;font-size:.72rem;cursor:pointer;font-family:'Inter',sans-serif;transition:all .2s}
+.expand-btn:hover{border-color:var(--primary);color:var(--primary)}
+
+/* details area */
+.details{display:none;padding:.25rem 1.25rem 1.25rem;border-top:1px solid var(--glass-b)}
+.details.open{display:block}
+
+/* section box */
+.sec-box{background:rgba(255,255,255,.02);border:1px solid var(--glass-b);border-radius:7px;margin-bottom:.6rem;overflow:hidden}
+.sec-box.ws-FAIL,.sec-box.ws-ERROR{border-left:3px solid var(--fail)}
+.sec-box.ws-WARN{border-left:3px solid var(--warn)}
+.sec-box.ws-PASS{border-left:3px solid var(--pass)}
+.sec-box.ws-INFO,.sec-box.ws-SKIP{border-left:3px solid var(--dim)}
+.sec-header{display:flex;align-items:center;justify-content:space-between;padding:.6rem .9rem;background:rgba(255,255,255,.04);cursor:pointer;font-weight:600;font-size:.82rem}
+.sec-header:hover{background:rgba(255,255,255,.07)}
+.sec-content{display:none;padding:.75rem .9rem;border-top:1px solid var(--glass-b)}
+.sec-content.open{display:block}
+
+/* check items */
+.chk-item{display:flex;align-items:flex-start;gap:.65rem;padding:.45rem .5rem;border-radius:5px;font-size:.8rem;margin-bottom:.35rem}
+.chk-item:last-child{margin-bottom:0}
+.chk-item.st-PASS{background:rgba(34,197,94,.06);border:1px solid rgba(34,197,94,.14)}
+.chk-item.st-FAIL,.chk-item.st-ERROR{background:rgba(239,68,68,.07);border:1px solid rgba(239,68,68,.22)}
+.chk-item.st-WARN{background:rgba(245,158,11,.06);border:1px solid rgba(245,158,11,.2)}
+.chk-item.st-INFO{background:rgba(96,165,250,.05);border:1px solid rgba(96,165,250,.13)}
+.chk-item.st-SKIP{background:rgba(107,114,128,.05);border:1px solid rgba(107,114,128,.13);opacity:.7}
+.chk-badge{font-family:var(--mono);font-size:.68rem;font-weight:700;padding:.1rem .45rem;border-radius:3px;flex-shrink:0;border:1px solid}
+.b-PASS{color:var(--pass);background:rgba(34,197,94,.12);border-color:rgba(34,197,94,.3)}
+.b-FAIL,.b-ERROR{color:var(--fail);background:rgba(239,68,68,.12);border-color:rgba(239,68,68,.3)}
+.b-WARN{color:var(--warn);background:rgba(245,158,11,.12);border-color:rgba(245,158,11,.3)}
+.b-INFO{color:var(--info);background:rgba(96,165,250,.1);border-color:rgba(96,165,250,.28)}
+.b-SKIP{color:var(--dim);background:rgba(107,114,128,.1);border-color:rgba(107,114,128,.28)}
+.chk-msg{flex:1;line-height:1.45}
+.chk-detail{font-family:var(--mono);font-size:.7rem;color:var(--dim);background:rgba(15,23,42,.6);border:1px solid var(--glass-b);padding:.5rem .7rem;border-radius:4px;white-space:pre-wrap;word-break:break-all;margin-top:.35rem;max-height:220px;overflow-y:auto}
+
+/* filter hidden */
+.fhide{display:none!important}
+
+/* scrollbar */
+::-webkit-scrollbar{width:5px;height:5px}
+::-webkit-scrollbar-track{background:rgba(0,0,0,.1)}
+::-webkit-scrollbar-thumb{background:rgba(255,255,255,.18);border-radius:3px}
+</style>
+</head>
+<body>
+
+<!-- ══════════ SIDEBAR ══════════ -->
+<aside class="sidebar">
+  <div class="sidebar-inner">
+    <div class="logo">
+      <h1>CloudHealth<span class="badge">BETA 4</span></h1>
+      <p>Cloud Health Check &amp; Diagnostics</p>
+    </div>
+
+    <div class="tabs">
+      <div class="tab active" data-tab="tab-checks">Test Cases</div>
+      <div class="tab"        data-tab="tab-config">Configuration</div>
+    </div>
+
+    <!-- Tab: Checks -->
+    <div id="tab-checks" class="tab-content active">
+      <div id="checkGroups">
+        <div style="text-align:center;color:var(--dim);padding:2rem 0;font-size:.82rem">Loading checks…</div>
+      </div>
+      <button class="run-btn" id="runBtn">🚀 Run Health Check</button>
+    </div>
+
+    <!-- Tab: Config -->
+    <div id="tab-config" class="tab-content">
+      <div class="cfg-grid" id="cfgGrid">
+        <div class="cfg-section-label">Parallelism</div>
+        <div class="cfg-group"><label class="cfg-label">Parallel Limit</label><input class="cfg-input" id="c_parallel_limit" type="number" placeholder="5"></div>
+        <div class="cfg-group"><label class="cfg-label">Max Nodes</label><input class="cfg-input" id="c_max_parallel_nodes" type="number" placeholder="10"></div>
+        <div class="cfg-group"><label class="cfg-label">SSH Timeout</label><input class="cfg-input" id="c_ssh_timeout" type="number" placeholder="30"></div>
+        <div class="cfg-group"><label class="cfg-label">CMD Timeout</label><input class="cfg-input" id="c_cmd_timeout" type="number" placeholder="60"></div>
+        <div class="cfg-section-label">Thresholds</div>
+        <div class="cfg-group"><label class="cfg-label">Disk %</label><input class="cfg-input" id="c_disk_percent" type="number" placeholder="85"></div>
+        <div class="cfg-group"><label class="cfg-label">Mem Warn %</label><input class="cfg-input" id="c_mem_warn" type="number" placeholder="80"></div>
+        <div class="cfg-group"><label class="cfg-label">Mem Fail %</label><input class="cfg-input" id="c_mem_fail" type="number" placeholder="95"></div>
+        <div class="cfg-group"><label class="cfg-label">Swap Warn %</label><input class="cfg-input" id="c_swap_warn" type="number" placeholder="30"></div>
+        <div class="cfg-group"><label class="cfg-label">Load Warn ×</label><input class="cfg-input" id="c_load_warn" type="number" step=".1" placeholder="2.0"></div>
+        <div class="cfg-group"><label class="cfg-label">Load Fail ×</label><input class="cfg-input" id="c_load_fail" type="number" step=".1" placeholder="5.0"></div>
+        <div class="cfg-section-label">Paths</div>
+        <div class="cfg-group full"><label class="cfg-label">Output Dir</label><input class="cfg-input" id="c_output_dir" type="text" placeholder="./outputs"></div>
+        <div class="cfg-group full"><label class="cfg-label">Inventory File</label><input class="cfg-input" id="c_inventory_file" type="text" placeholder="inventory.xlsx"></div>
+      </div>
+      <button class="save-btn" id="saveBtn">Save Config</button>
+      <div class="save-ok" id="saveOk">✓ Saved</div>
+    </div>
+  </div>
+  <div class="sidebar-footer">© 2026 CloudHealth Beta 4</div>
+</aside>
+
+<!-- ══════════ MAIN ══════════ -->
+<main class="main">
+  <div class="main-inner">
+
+    <!-- Scoreboard -->
+    <div class="scoreboard">
+      <div class="sc n"><div class="sc-label">Clusters</div><div class="sc-val" id="s-clusters">–</div></div>
+      <div class="sc i"><div class="sc-label">Sections</div><div class="sc-val" id="s-sections">–</div></div>
+      <div class="sc p"><div class="sc-label">Passed</div><div class="sc-val" id="s-pass">–</div></div>
+      <div class="sc w"><div class="sc-label">Warnings</div><div class="sc-val" id="s-warn">–</div></div>
+      <div class="sc f"><div class="sc-label">Failures</div><div class="sc-val" id="s-fail">–</div></div>
+    </div>
+
+    <!-- Banners -->
+    <div class="banner err" id="errBanner"></div>
+    <div class="banner ok"  id="okBanner"></div>
+
+    <!-- Filter bar -->
+    <div class="filter-bar">
+      <button class="fb active" data-f="all">All</button>
+      <button class="fb f" data-f="fail">Failures</button>
+      <button class="fb w" data-f="warn">Warnings</button>
+      <button class="fb p" data-f="pass">Passed</button>
+      <button class="fb" data-f="info">Info</button>
+    </div>
+
+    <!-- Cards -->
+    <div id="cards">
+      <div style="text-align:center;color:var(--dim);margin-top:4rem;font-style:italic">
+        Select test cases in the sidebar and click Run Health Check.
+      </div>
+    </div>
+
+  </div>
+</main>
+
+<script>
+'use strict';
+// ── WebSocket ──────────────────────────────────────────────────────────────
+const ws = new WebSocket(`ws://${location.host}/ws/ui`);
+
+// ── State ──────────────────────────────────────────────────────────────────
+const state = { clusters:{}, totals:{pass:0,warn:0,fail:0,sections:0,clusters:0}, running:false };
+let currentFilter = 'all';
+let configData    = {};
+let saveTimer     = null;
+
+// ── Helpers ────────────────────────────────────────────────────────────────
+const esc = s => String(s??'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+const $   = id => document.getElementById(id);
+const set = (id,v) => { const el=$(id); if(el) el.textContent=v; };
+const ICON = {PASS:'✓',FAIL:'✕',WARN:'⚠',INFO:'○',SKIP:'–',ERROR:'✕'};
+
+function badge(st) {
+  const ic = ICON[st]||'?';
+  return `<span class="chk-badge b-${st}">${ic} ${st}</span>`;
+}
+
+// ── Sidebar tabs ───────────────────────────────────────────────────────────
+document.querySelectorAll('.tab').forEach(t => {
+  t.onclick = () => {
+    document.querySelectorAll('.tab').forEach(x=>x.classList.remove('active'));
+    document.querySelectorAll('.tab-content').forEach(x=>x.classList.remove('active'));
+    t.classList.add('active');
+    $(t.dataset.tab).classList.add('active');
+  };
+});
+
+// ── Load config + checks ───────────────────────────────────────────────────
+async function init() {
+  const [cfg, checks, ver] = await Promise.all([
+    fetch('/api/config').then(r=>r.json()).catch(()=>({})),
+    fetch('/api/checks').then(r=>r.json()).catch(()=>({})),
+    fetch('/api/version').then(r=>r.json()).catch(()=>({})),
+  ]);
+  configData = cfg;
+  populateConfig(cfg);
+  renderCheckGroups(checks);
+  if(cfg.last_enabled_checks?.length) restoreCheckSelection(cfg.last_enabled_checks, checks);
+}
+
+function populateConfig(cfg) {
+  const map = {
+    c_parallel_limit:'parallel_limit', c_max_parallel_nodes:'max_parallel_nodes',
+    c_ssh_timeout:'ssh_timeout', c_cmd_timeout:'cmd_timeout',
+    c_output_dir:'output_dir', c_inventory_file:'inventory_file',
+  };
+  Object.entries(map).forEach(([id,key]) => { if(cfg[key]!==undefined && $(id)) $(id).value=cfg[key]; });
+  const thr = cfg.thresholds||{};
+  const thrMap = {c_disk_percent:'disk_percent',c_mem_warn:'mem_warn',c_mem_fail:'mem_fail',
+                  c_swap_warn:'swap_warn',c_load_warn:'load_warn',c_load_fail:'load_fail'};
+  Object.entries(thrMap).forEach(([id,key]) => { if(thr[key]!==undefined && $(id)) $(id).value=thr[key]; });
+}
+
+// ── Render check groups ────────────────────────────────────────────────────
+function renderCheckGroups(categories) {
+  const container = $('checkGroups');
+  container.innerHTML = '';
+  for(const [groupName, items] of Object.entries(categories)) {
+    const gid = groupName.replace(/[^a-z]/gi,'_');
+    const div = document.createElement('div');
+    div.className = 'check-group';
+    div.innerHTML = `
+      <div class="cg-header" onclick="toggleGroup(this)">
+        <span class="cg-title">${esc(groupName)}</span>
+        <span class="cg-counter" id="cnt_${gid}">${items.length}/${items.length}</span>
+        <span class="cg-links">
+          <span onclick="event.stopPropagation();selectAll('${gid}',true)">All</span>
+          <span onclick="event.stopPropagation();selectAll('${gid}',false)">None</span>
+        </span>
+        <span class="chevron">▼</span>
+      </div>
+      <div class="cg-items" id="items_${gid}">
+        ${items.map(c=>`
+          <div class="chk-row">
+            <input type="checkbox" id="chk_${c.id}" class="chk-opt" value="${c.id}" checked
+                   onchange="updateCounter('${gid}');scheduleSaveChecks()">
+            <label for="chk_${c.id}">${esc(c.label)}</label>
+          </div>`).join('')}
+      </div>`;
+    container.appendChild(div);
+  }
+}
+
+function toggleGroup(header) { header.parentElement.classList.toggle('open'); }
+
+function selectAll(gid, checked) {
+  document.querySelectorAll(`#items_${gid} .chk-opt`).forEach(c=>c.checked=checked);
+  updateCounter(gid); scheduleSaveChecks();
+}
+
+function updateCounter(gid) {
+  const all     = document.querySelectorAll(`#items_${gid} .chk-opt`);
+  const checked = document.querySelectorAll(`#items_${gid} .chk-opt:checked`);
+  const el = $(`cnt_${gid}`); if(el) el.textContent=`${checked.length}/${all.length}`;
+}
+
+function scheduleSaveChecks() {
+  clearTimeout(saveTimer);
+  saveTimer = setTimeout(() => {
+    const checked = [...document.querySelectorAll('.chk-opt:checked')].map(c=>c.value);
+    configData.last_enabled_checks = checked;
+    fetch('/api/config',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(configData)});
+  }, 600);
+}
+
+function restoreCheckSelection(ids, categories) {
+  document.querySelectorAll('.chk-opt').forEach(c=>c.checked=false);
+  ids.forEach(id=>{ const el=$('chk_'+id); if(el) el.checked=true; });
+  for(const groupName of Object.keys(categories)) {
+    updateCounter(groupName.replace(/[^a-z]/gi,'_'));
+  }
+}
+
+// ── Save config ────────────────────────────────────────────────────────────
+$('saveBtn').onclick = () => {
+  $('saveBtn').disabled=true; $('saveBtn').textContent='Saving…';
+  const map={c_parallel_limit:'parallel_limit',c_max_parallel_nodes:'max_parallel_nodes',
+              c_ssh_timeout:'ssh_timeout',c_cmd_timeout:'cmd_timeout',
+              c_output_dir:'output_dir',c_inventory_file:'inventory_file'};
+  Object.entries(map).forEach(([id,key])=>{
+    const el=$(id); if(!el) return;
+    configData[key] = el.type==='number' ? (el.step?parseFloat(el.value):parseInt(el.value)) : el.value;
+  });
+  if(!configData.thresholds) configData.thresholds={};
+  const thrMap={c_disk_percent:'disk_percent',c_mem_warn:'mem_warn',c_mem_fail:'mem_fail',
+                c_swap_warn:'swap_warn',c_load_warn:'load_warn',c_load_fail:'load_fail'};
+  Object.entries(thrMap).forEach(([id,key])=>{
+    const el=$(id); if(!el) return;
+    configData.thresholds[key] = el.step?parseFloat(el.value):parseInt(el.value);
+  });
+  fetch('/api/config',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(configData)})
+    .then(r=>r.json()).then(()=>{
+      $('saveBtn').disabled=false; $('saveBtn').textContent='Save Config';
+      $('saveOk').style.display='block';
+      setTimeout(()=>$('saveOk').style.display='none',2500);
+    });
+};
+
+// ── Filter ─────────────────────────────────────────────────────────────────
+document.querySelectorAll('.fb').forEach(btn => {
+  btn.onclick = () => {
+    document.querySelectorAll('.fb').forEach(b=>b.classList.remove('active'));
+    btn.classList.add('active');
+    currentFilter = btn.dataset.f;
+    applyFilter();
+  };
+});
+
+function applyFilter() {
+  document.querySelectorAll('.chk-item').forEach(el => {
+    const st = el.dataset.status||'';
+    let show = currentFilter==='all'
+      || (currentFilter==='fail' && (st==='FAIL'||st==='ERROR'))
+      || (currentFilter==='warn' && st==='WARN')
+      || (currentFilter==='pass' && st==='PASS')
+      || (currentFilter==='info' && (st==='INFO'||st==='SKIP'));
+    el.classList.toggle('fhide', !show);
+  });
+  // Hide sections with no visible items
+  document.querySelectorAll('.sec-box').forEach(sec => {
+    const visible = sec.querySelectorAll('.chk-item:not(.fhide)').length;
+    sec.classList.toggle('fhide', currentFilter!=='all' && visible===0);
+  });
+  // Hide cluster cards with no visible sections
+  document.querySelectorAll('.cluster-card').forEach(card => {
+    const visibleSecs = card.querySelectorAll('.sec-box:not(.fhide)').length;
+    card.classList.toggle('fhide', currentFilter!=='all' && visibleSecs===0
+                                   && !card.querySelector('.details:not(.open)'));
+  });
+}
+
+// ── WS messages ────────────────────────────────────────────────────────────
+ws.onmessage = ({data}) => {
+  const m = JSON.parse(data);
+  switch(m.type) {
+    case 'run_state':      handleRunState(m);          break;
+    case 'cluster_status': updatePill(m.cluster,m.status); break;
+    case 'headline':       updateHeadline(m.cluster,m.message); break;
+    case 'check_result':   addCheckItem(m);             break;  // per-item streaming
+    case 'result':         addSectionResult(m.cluster,m.data); break;  // section batch
+    case 'complete':       onClusterDone(m);            break;
+    case 'error':          showError(m.cluster?`${m.cluster}: ${m.message}`:m.message); break;
+    case 'reports_ready':  showReportReady(m);          break;
+  }
+};
+
+ws.onerror = () => showError('WebSocket error. Is the server running?');
+
+function handleRunState(m) {
+  if(m.state==='started') {
+    state.running=true;
+    resetDashboard();
+    $('runBtn').disabled=true;
+    $('runBtn').textContent='⚙ Running…';
+  }
+  if(m.state==='finished') {
+    state.running=false;
+    $('runBtn').disabled=false;
+    $('runBtn').textContent='🚀 Run Health Check';
+    applyFilter();
+  }
+}
+
+function resetDashboard() {
+  $('cards').innerHTML='';
+  Object.assign(state,{clusters:{},totals:{pass:0,warn:0,fail:0,sections:0,clusters:0}});
+  updateScoreboard();
+  $('errBanner').classList.remove('show');
+  $('okBanner').classList.remove('show');
+  document.querySelectorAll('.fb').forEach(b=>b.classList.remove('active'));
+  document.querySelector('.fb[data-f="all"]').classList.add('active');
+  currentFilter='all';
+}
+
+function updateScoreboard() {
+  set('s-clusters', state.totals.clusters||'–');
+  set('s-sections', state.totals.sections||'–');
+  set('s-pass',     state.totals.pass||'–');
+  set('s-warn',     state.totals.warn||'–');
+  set('s-fail',     state.totals.fail||'–');
+}
+
+// ── Per-item streaming (check_result) ──────────────────────────────────────
+function addCheckItem(m) {
+  const card    = getOrCreateCard(m.cluster||'');
+  const details = card.querySelector('.details');
+  let secBox = details.querySelector(`[data-sec="${CSS.escape(m.section)}"]`);
+  if(!secBox) {
+    secBox = document.createElement('div');
+    secBox.className = 'sec-box ws-running';
+    secBox.dataset.sec = m.section;
+    secBox.innerHTML = `
+      <div class="sec-header" onclick="this.nextElementSibling.classList.toggle('open')">
+        <span>${esc(m.section)} <span style="font-size:.72rem;color:var(--dim);font-weight:400">(${esc(m.category)})</span></span>
+        <span class="chk-badge b-INFO" id="sbadge_${slug(m.cluster)}_${slug(m.section)}">… RUNNING</span>
+      </div>
+      <div class="sec-content" id="sc_${slug(m.cluster)}_${slug(m.section)}"></div>`;
+    details.appendChild(secBox);
+    // Ensure details are open when items stream in
+    details.classList.add('open');
+    card.querySelector('.expand-btn').textContent='Collapse Logs';
+  }
+  const sc = $(`sc_${slug(m.cluster)}_${slug(m.section)}`);
+  if(sc) {
+    const item = document.createElement('div');
+    item.className = `chk-item st-${m.status}`;
+    item.dataset.status = m.status;
+    item.innerHTML = `${badge(m.status)}<div class="chk-msg">${esc(m.message)}${
+      m.detail?`<div class="chk-detail">${esc(m.detail)}</div>`:''}</div>`;
+    sc.appendChild(item);
+  }
+  // Accumulate per-cluster counts for scoreboard
+  const cs = state.clusters[m.cluster]||{pass:0,warn:0,fail:0};
+  if(m.status==='PASS') cs.pass++;
+  else if(m.status==='FAIL'||m.status==='ERROR') cs.fail++;
+  else if(m.status==='WARN') cs.warn++;
+  state.clusters[m.cluster] = cs;
+  applyFilter();
+}
+
+// ── Section batch result (from on_result callback) ─────────────────────────
+function addSectionResult(cluster, data) {
+  const card    = getOrCreateCard(cluster);
+  const details = card.querySelector('.details');
+  const st      = (data.status||'').toUpperCase();
+
+  // Update (or create) the section box with final status
+  let secBox = details.querySelector(`[data-sec="${CSS.escape(data.name)}"]`);
+  if(!secBox) {
+    secBox = document.createElement('div');
+    secBox.dataset.sec = data.name;
+    details.appendChild(secBox);
+  }
+  secBox.className = `sec-box ws-${st}`;
+  secBox.innerHTML = `
+    <div class="sec-header" onclick="this.nextElementSibling.classList.toggle('open')">
+      <span>${esc(data.name)} <span style="font-size:.72rem;color:var(--dim);font-weight:400">(${esc(data.category)})</span></span>
+      ${badge(st)}
+    </div>
+    <div class="sec-content">
+      ${(data.checks||[]).map(c=>`
+        <div class="chk-item st-${c.status}" data-status="${c.status}">
+          ${badge(c.status)}
+          <div class="chk-msg">${esc(c.message)}${
+            c.detail?`<div class="chk-detail">${esc(c.detail)}</div>`:''}</div>
+        </div>`).join('')}
+    </div>`;
+
+  // Update totals
+  state.totals.sections++;
+  if(st==='FAIL'||st==='ERROR') state.totals.fail++;
+  else if(st==='WARN') state.totals.warn++;
+  else state.totals.pass++;
+  updateScoreboard();
+  applyFilter();
+}
+
+function onClusterDone(m) {
+  state.totals.clusters++;
+  updateScoreboard();
+  const overall = m.summary?.overall_status || 'INFO';
+  updatePill(m.cluster, overall);
+  updateHeadline(m.cluster, 'Check sequence complete.');
+}
+
+// ── Card management ────────────────────────────────────────────────────────
+function getOrCreateCard(name) {
+  if(state.clusters[name]?._card) return state.clusters[name]._card;
+  if(!state.clusters[name]) state.clusters[name] = {pass:0,warn:0,fail:0};
+
+  const div = document.createElement('div');
+  div.className = 'cluster-card';
+  div.innerHTML = `
+    <div class="card-header">
+      <span class="card-type">CLUSTER</span>
+      <span class="card-name">${esc(name)}</span>
+      <div class="card-counts">
+        <span class="cc-p" id="cp_${slug(name)}">–✓</span>
+        <span class="cc-f" id="cf_${slug(name)}">–✕</span>
+        <span class="cc-w" id="cw_${slug(name)}">–⚠</span>
+      </div>
+      <span class="pill pill-idle" id="pill_${slug(name)}">Idle</span>
+    </div>
+    <div class="headline" id="hl_${slug(name)}">> Awaiting start…</div>
+    <div class="card-actions">
+      <button class="expand-btn" onclick="toggleDetails(this,'det_${slug(name)}')">Expand Logs</button>
+    </div>
+    <div class="details" id="det_${slug(name)}"></div>`;
+
+  $('cards').appendChild(div);
+  state.clusters[name]._card = div;
+  return div;
+}
+
+function toggleDetails(btn, detId) {
+  const det = $(detId);
+  det.classList.toggle('open');
+  btn.textContent = det.classList.contains('open') ? 'Collapse Logs' : 'Expand Logs';
+}
+
+function updatePill(name, status) {
+  const el = $(`pill_${slug(name)}`); if(!el) return;
+  const norm = (status||'').toLowerCase().replace(/\s+/g,'-');
+  el.className = `pill pill-${norm}`;
+  el.textContent = status;
+}
+
+function updateHeadline(name, msg) {
+  const el = $(`hl_${slug(name)}`); if(el) el.textContent = '> '+msg;
+}
+
+function showError(msg) {
+  const b = $('errBanner');
+  b.textContent = msg; b.classList.add('show');
+  if(!state.running){ $('runBtn').disabled=false; $('runBtn').textContent='🚀 Run Health Check'; }
+}
+
+function showReportReady(m) {
+  const b = $('okBanner');
+  b.innerHTML = `<strong>✓ Diagnostics complete</strong> — ${m.count} cluster(s) checked.<br>
+    <a href="/report/latest" target="_blank" style="color:var(--pass);font-weight:600">Open Full Report</a>
+    &nbsp;|&nbsp;
+    <a href="/report/email" target="_blank" style="color:var(--info)">Email Version</a>`;
+  b.classList.add('show');
+}
+
+function slug(s) { return (s||'').replace(/[^a-zA-Z0-9]/g,'_'); }
+
+// ── Run ────────────────────────────────────────────────────────────────────
+$('runBtn').onclick = () => {
+  if(state.running) return;
+  if(ws.readyState !== WebSocket.OPEN) {
+    showError('WebSocket not connected. Refresh the page.');
+    return;
+  }
+  $('errBanner').classList.remove('show');
+  $('okBanner').classList.remove('show');
+  const enabledChecks = [...document.querySelectorAll('.chk-opt:checked')].map(c=>c.value);
+  ws.send(JSON.stringify({action:'start_all', enabled_checks: enabledChecks}));
+  $('runBtn').disabled = true;
+};
+
+// ── Boot ───────────────────────────────────────────────────────────────────
+init();
+</script>
+</body>
+</html>

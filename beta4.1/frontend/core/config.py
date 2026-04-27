@@ -14,10 +14,9 @@ import sys
 from pathlib import Path
 from typing import List, Optional
 
-BASE_DIR    = Path(__file__).resolve().parent.parent.parent
-BACKEND_DIR = BASE_DIR / "backend"
+BASE_DIR         = Path(__file__).resolve().parent.parent.parent
+BACKEND_DIR      = BASE_DIR / "backend"
 BACKEND_CORE_DIR = BACKEND_DIR / "core"
-                                        
 
 # Add backend/core to path so 'inventory' is importable as a top-level module
 # (avoids conflict with frontend/core which is also named 'core')
@@ -51,7 +50,7 @@ def load_app_config(
     DEFAULT_CONFIGS = [
         Path("config/config.yaml"),
         Path("cloudhealth.yaml"),
-        Path.home() / ".cloud_health" / "config.yaml",
+        Path.home() / ".cloudhealth" / "config.yaml",
     ]
     DEFAULT_INVENTORIES = [
         Path("config/inventory.xlsx"),

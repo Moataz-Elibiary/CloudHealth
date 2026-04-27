@@ -1,5 +1,5 @@
 """
-Premium HTML Report Generator for ClusterPulse.
+Premium HTML Report Generator for CloudHealth.
 Design: Refined industrial — charcoal + amber accent, monospaced precision.
 Dual-mode: interactive browser report + email-safe inline-style version.
 Filters work correctly: only show matching items, not just highlight them.
@@ -13,6 +13,7 @@ try:
     from result import ClusterResult, SectionResult, Status
 except ImportError:
     from core.result import ClusterResult, SectionResult, Status
+Section = SectionResult
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -605,7 +606,7 @@ def _render_item(item, idx: int, section_id: str) -> str:
     )
 
 
-def _render_section(s: SectionResult, s_idx: int, c_idx: int) -> str:
+def _render_section(s: Section, s_idx: int, c_idx: int) -> str:
     sid  = f"c{c_idx}_s{s_idx}"
     ws   = s.worst_status
     dur  = f'<span class="cp-section-dur">{s.duration_s:.1f}s</span>' if s.duration_s else ""
@@ -613,7 +614,7 @@ def _render_section(s: SectionResult, s_idx: int, c_idx: int) -> str:
             f'<span class="cp-cnt fail">{s.fail_count}✕</span>'
             f'<span class="cp-cnt warn">{s.warn_count}⚠</span>')
 
-    items_html = "\n".join(_render_item(item, i, sid) for i, item in enumerate(s.checks))
+    items_html = "\n".join(_render_item(item, i, sid) for i, item in enumerate(s.items))
 
     raw_html = ""
     if s.raw_log.strip():
@@ -744,13 +745,13 @@ class HTMLReporter:
         clusters_html = "\n".join(_render_cluster(r, i) for i, r in enumerate(self.results))
 
         # filter buttons with counts
-        n_fail = sum(1 for r in self.results for s in r.sections for item in s.checks
+        n_fail = sum(1 for r in self.results for s in r.sections for item in s.items
                      if item.status in (Status.FAIL, Status.ERROR))
-        n_warn = sum(1 for r in self.results for s in r.sections for item in s.checks
+        n_warn = sum(1 for r in self.results for s in r.sections for item in s.items
                      if item.status == Status.WARN)
-        n_pass = sum(1 for r in self.results for s in r.sections for item in s.checks
+        n_pass = sum(1 for r in self.results for s in r.sections for item in s.items
                      if item.status == Status.PASS)
-        n_info = sum(1 for r in self.results for s in r.sections for item in s.checks
+        n_info = sum(1 for r in self.results for s in r.sections for item in s.items
                      if item.status in (Status.INFO, Status.SKIP))
 
         meta_clusters = f"{len(self.results)} cluster{'s' if len(self.results)!=1 else ''}"
@@ -760,7 +761,7 @@ class HTMLReporter:
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>ClusterPulse Report — {ts}</title>
+<title>CloudHealth Report — {ts}</title>
 <style>{_CSS}</style>
 </head>
 <body>
@@ -771,7 +772,7 @@ class HTMLReporter:
     <div class="cp-logo">
       <div class="cp-logo-icon">⚡</div>
       <div>
-        <div class="cp-logo-text">ClusterPulse</div>
+        <div class="cp-logo-text">CloudHealth</div>
         <div class="cp-logo-sub">Health Report</div>
       </div>
     </div>
@@ -861,7 +862,7 @@ class HTMLReporter:
 
             detail = ""
             for s in fail_sections[:8]:
-                for item in s.checks:
+                for item in s.items:
                     if item.status in (Status.FAIL, Status.ERROR, Status.WARN):
                         ic = _badge_inline(item.status, small=True)
                         detail += (
@@ -897,7 +898,7 @@ class HTMLReporter:
 
         email = f"""<!DOCTYPE html>
 <html lang="en">
-<head><meta charset="UTF-8"><title>ClusterPulse Health Report</title></head>
+<head><meta charset="UTF-8"><title>CloudHealth Health Report</title></head>
 <body style="margin:0;padding:0;background:#0f1117;font-family:'IBM Plex Sans',Arial,sans-serif;color:#e8edf8">
 <table width="100%" cellpadding="0" cellspacing="0" style="background:#0f1117;padding:32px 0">
   <tr><td align="center">
@@ -911,7 +912,7 @@ class HTMLReporter:
               <td>
                 <div style="font-family:'IBM Plex Mono',monospace;font-size:20px;font-weight:700;
                             background:linear-gradient(135deg,#f59e0b,#ef4444);
-                            -webkit-background-clip:text;color:#f59e0b">⚡ ClusterPulse</div>
+                            -webkit-background-clip:text;color:#f59e0b">⚡ CloudHealth</div>
                 <div style="font-size:11px;color:#7a8aaa;letter-spacing:.5px;text-transform:uppercase;margin-top:2px">Health Check Report</div>
               </td>
               <td align="right">
@@ -962,7 +963,7 @@ class HTMLReporter:
       <!-- footer -->
       <tr style="background:#1e2333;border-top:1px solid #2a3350">
         <td style="padding:14px 32px;font-size:11px;color:#4a5570;font-family:monospace;text-align:center">
-          ClusterPulse · Auto-generated health check report · {ts}
+          CloudHealth · Auto-generated health check report · {ts}
         </td>
       </tr>
 

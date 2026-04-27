@@ -249,7 +249,17 @@ class InventoryLoader:
             raise ValueError(f"Not a valid .xlsx file: {excel_path}") from exc
 
         sheet = "Clusters" if "Clusters" in wb.sheet_names else wb.sheet_names[0]
-        df    = _normalize_columns(pd.read_excel(wb, sheet_name=sheet, header=header_row))
+        # Auto-detect header row: handles decorated Excel with banner rows above headers
+        raw_df = pd.read_excel(wb, sheet_name=sheet, header=None)
+        header_row = 0
+        for i, row in raw_df.iterrows():
+            for cell in row.values:
+                if _canonical_header(str(cell)) in ("clustername", "cluster_name"):
+                    header_row = int(i)
+                    break
+            if header_row:
+                break
+        df = _normalize_columns(pd.read_excel(wb, sheet_name=sheet, header=header_row))
 
         # Optional Nodes sheet
         nodes_map: Dict[str, List[NodeConfig]] = {}
