@@ -1,0 +1,5 @@
+This is a test file created by Claude Code.
+It demonstrates the ability to create files and push them to GitHub.
+
+Created on: 2026-04-28
+Purpose: Testing GitHub integration with Claude Code
