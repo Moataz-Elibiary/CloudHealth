@@ -5,7 +5,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import List
 
-from core.inventory import NodeConfig, AppSettings as AppConfig, resolve_threshold
+from engine.inventory import NodeConfig, AppSettings as AppConfig, resolve_threshold
 from result import SectionResult as Section, Status
 from ssh_client import SSHClient
 
