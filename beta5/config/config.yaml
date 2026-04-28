@@ -1,0 +1,41 @@
+# ============================================================================
+# CloudHealth Beta 4 — config.yaml
+# Both the frontend (ConfigLoader) and backend (AppSettings.from_dict) read
+# from this file.  All keys are optional — defaults are shown as comments.
+# ============================================================================
+
+# ── Parallelism ───────────────────────────────────────────────────────────────
+parallel_limit:     5      # max clusters processed simultaneously
+max_parallel_nodes: 10     # max nodes checked in parallel per cluster
+ssh_timeout:        30     # seconds for SSH connection
+cmd_timeout:        60     # seconds per remote command
+
+# ── Backend ───────────────────────────────────────────────────────────────────
+backend_port:       8100   # port the backend listens on (localhost only)
+heartbeat_timeout:  60     # seconds of silence before backend self-terminates
+
+# ── Logging ───────────────────────────────────────────────────────────────────
+max_log_files:      5      # historical log files to keep per type (frontend + bastion)
+
+# ── Paths ─────────────────────────────────────────────────────────────────────
+output_dir:     ./outputs/
+inventory_file: ./inventory.xlsx
+
+# ── Thresholds (global defaults; overridable per-cluster in inventory.xlsx) ───
+thresholds:
+  disk_percent:  85    # disk_threshold
+  mem_warn:      80    # mem_used_pct_warn
+  mem_fail:      95    # mem_used_pct_fail
+  load_warn:     2.0   # load_ratio_warn
+  load_fail:     5.0   # load_ratio_fail
+  swap_warn:     30    # swap_used_pct_warn
+
+# ── Check filter (uncomment to restrict which categories run) ─────────────────
+# enabled_checks:
+#   - nodes
+#   - etcd
+#   - pods
+#   - disk
+
+# ── Persisted by UI (do not edit manually) ───────────────────────────────────
+last_enabled_checks: []

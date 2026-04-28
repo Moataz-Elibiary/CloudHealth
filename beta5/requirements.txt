@@ -1,0 +1,18 @@
+# ── Frontend (user's machine) ─────────────────────────────────────────────────
+fastapi>=0.110.0
+uvicorn[standard]>=0.29.0
+websockets>=12.0
+paramiko>=3.4.0
+PyYAML>=6.0.1
+pandas>=2.0
+openpyxl>=3.1.0
+cryptography>=42.0.0
+rich>=13.7.0
+
+# ── Backend (pushed to bastion) ───────────────────────────────────────────────
+# Bastion needs: fastapi, uvicorn, websockets, paramiko, pyyaml, pandas, openpyxl
+# Bundle with: pip install --target backend/vendor -r requirements.txt
+# Or:          python -m zipapp backend/ -p '/usr/bin/env python3'
+
+# ── Dev / build ───────────────────────────────────────────────────────────────
+# pyinstaller>=6.5.0   # compile bootstrapper to exe

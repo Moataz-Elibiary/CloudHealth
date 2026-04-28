@@ -1,0 +1,197 @@
+Analysis of Beta4.1 — Functional Requirements Review
+I've analyzed the codebase against your 11 requirements. Here are my findings — broken down per requirement, with bugs/issues highlighted.
+
+✅ 1. Source server holds the program; bootstrapper SFTPs to check version
+Working. bootstrapper.py::_sync() opens SFTP, reads /opt/cloud_health/version.txt, compares with the local cached version, and pulls the tree only on mismatch.
+⚠️ Bug — Path mismatch between bootstrapper and frontend:
+
+Bootstrapper: REMOTE_ROOT = "/opt/cloud_health"
+frontend/core/version_sync.py: REMOTE_ROOT = "/opt/cloudhealth" (no underscore)
+
+These two modules disagree on where the source program lives. If anyone uses the frontend's version_sync.py, it will look in the wrong directory.
+[FIXED] version_sync.py updated to REMOTE_ROOT = "/opt/cloud_health"
+
+⚠️ Bug — Cache directory mismatch:
+
+Bootstrapper uses ~/.cloud_health/
+frontend/core/credentials.py uses ~/.cloudhealth/
+
+They are separate cred stores and never share data.
+[FIXED] credentials.py and config.py updated to use ~/.cloud_health/
+
+
+❌ 2. Bootstrapper asks for credentials, saves encrypted, retries on failure
+Partially working — retry on failed login is MISSING.
+The bootstrapper:
+
+Shows a browser popup ✅
+Encrypts credentials with Fernet+PBKDF2 ✅
+Saves only when "remember" is ticked ✅
+
+But: if _sync() fails (wrong password, bad host, bad port), the code does:
+python except Exception as e:
+    print(f"[bootstrap] ERROR: {e}")
+    sys.exit(1)
+It exits immediately. There is no loop that re-prompts the user. The requirement says "if login failed, ask the user to enter credentials again" — that retry logic is not implemented.
+[FIXED] Retry loop implemented (3 attempts); error shown in browser UI on each failed attempt.
+
+⚠️ Additional bug — cached credentials are never used: load_creds() is defined but never called in main(). The popup is shown every single time, even when valid credentials exist in cache. The "remember credentials" checkbox is effectively useless.
+[FIXED] load_creds() called at startup; popup skipped if cached credentials succeed.
+
+⚠️ Security bug: save_creds() is called before the connection is tested. If the user types a wrong password, it gets encrypted and saved to disk anyway.
+[FIXED] save_creds() moved to after successful _sync() validation.
+
+
+✅ 3. Connection failure → error message and exit
+Working (though see point 2 — it should retry, not just exit). The exception is caught and sys.exit(1) is called with a printed error. The frontend popup, however, does not display the error visually since the browser tab has already been closed by server.shutdown().
+⚠️ UX bug: The error only goes to stdout/stderr. If the bootstrapper is run as a PyInstaller .exe with no console, the user never sees the error.
+[FIXED] Error message surfaced in browser UI via /status polling endpoint; visible even with no console.
+
+
+⚠️ 4. Bootstrapper SFTPs backend+frontend with dependencies, launches, goes to background until healthcheck completes
+Partially working.
+
+SFTP pull recursively copies the program tree ✅ (via _sftp_pull)
+Launches main.py via subprocess.Popen ✅
+
+Issues:
+⚠️ Dependencies are NOT bundled. _sftp_pull only copies /opt/cloud_health/*. There is no logic to install Python dependencies (paramiko, fastapi, uvicorn, cryptography, pandas, openpyxl, websockets, pyyaml). The bootstrapper assumes they exist on the user's machine. The requirement says "with all their dependencies" — this is not fulfilled.
+[FIXED] vendor/ and requirements.txt pushed via SFTP; offline pip install (--no-index --find-links vendor/) runs before backend launch. vendor/ is mandatory — RuntimeError raised if missing.
+
+⚠️ Bootstrapper exits immediately after Popen: Look at the end of main():
+python subprocess.Popen([sys.executable, str(main_py)], cwd=str(PROGRAM_DIR))
+There's no wait(), no monitoring of the child, no "stay alive until healthcheck completes." The bootstrapper exits as soon as it spawns the process. The requirement says it should "go to background until healthcheck complete" — this is not implemented.
+[IGNORED] Accepted as-is; bootstrapper spawning frontend and exiting is the intended behaviour.
+
+⚠️ No backend launch at all from bootstrapper: The bootstrapper only launches main.py (the frontend). The backend on the cluster bastions is launched later by the frontend, not the bootstrapper.
+[IGNORED] Design is intentional — frontend manages bastion backend lifecycle.
+
+
+✅ 5. Frontend welcome page: select checks, change config, start healthcheck
+Working. frontend/static/index.html has:
+
+A "Test Cases" tab with check-group selection
+A "Configuration" tab with parallel limit, max parallel nodes, SSH timeout, command timeout, all thresholds (disk %, mem warn/fail %, swap, load), output dir, inventory file
+A "Run Health Check" button that posts start_all over /ws/ui
+
+/api/config GET/POST persists changes back to config.yaml.
+
+
+⚠️ 6. Check inventory & credentials, SFTP backend to all clusters (/tmp/health_check/ if version differs), start backend
+Mostly working — with a path mismatch.
+The flow in frontend/app.py::_run_single_cluster() correctly:
+
+Loads inventory ✅
+Opens SSH+tunnel to each cluster bastion ✅
+Calls sftp_push_backend() which compares versions and pushes only on mismatch ✅
+Launches backend via nohup python3 ... main.py --port {N} ✅
+
+⚠️ Bug — Path mismatch with your spec: You specified /tmp/health_check/, but the code uses /tmp/cloud_health/ (REMOTE_BACKEND_DIR = "/tmp/cloud_health" in tunnel_manager.py). Functionally consistent within the code, but does not match your stated requirement.
+[IGNORED] /tmp/cloud_health/ confirmed as the correct path; spec reference was outdated.
+
+⚠️ Bug — No credential validation step before push. The code goes straight to "connect & SFTP push" — if SSH auth fails, the user only sees a generic exception. There's no pre-flight validation of inventory credentials.
+[PENDING] No pre-flight SSH auth check before SFTP push; SSH failure still surfaces as a generic exception.
+
+⚠️ Bug — _wait_for_port race condition. After nohup ... & is sent via exec_command, the code waits 20s for the local forwarded port to accept connections. If the backend on the bastion crashes immediately (missing Python, missing vendor/, etc.), the user only gets TimeoutError with no diagnostic from backend.log.
+[PARTIALLY FIXED] SSH cleanup command added on timeout (pkill + lock removal); backend log is not read back to the frontend on failure.
+
+
+⚠️ 7. Backend uses SSH connection to stream updates to frontend HTML
+Working with caveats.
+
+Backend exposes /ws (WebSocket) on the bastion's localhost ✅
+Frontend tunnels through SSH (direct-tcpip channel) and proxies WS messages through WSProxy.proxy_cluster() ✅
+Per-check streaming via Section._push() → per-connection asyncio.Queue ✅
+
+⚠️ Subtle bug: In result.py::_push(), queue is put_nowait and silently drops on QueueFull. With maxsize=2000, a slow browser or slow tunnel could lose check results — they will not appear in the frontend, but the backend thinks they were sent. No retry or buffering.
+[FIXED] _push() rewritten with backpressure: fast path put_nowait, slow path run_coroutine_threadsafe(queue.put(msg), loop).result(timeout=30).
+
+⚠️ The "SSH connection" claim is misleading per your spec: The actual data path is Browser → Frontend WS → Tunnel (SSH direct-tcpip) → Backend WS. Updates don't stream over a raw SSH channel — they go through a full WebSocket inside the SSH tunnel. Functionally fine, just clarifying.
+[IGNORED] Architecture is intentional and functionally correct.
+
+
+❌ 8. Lock file deleted, SSH closed, frontend updated with failed test details after completion
+Partially working — race conditions.
+
+Lock file: _release_lock() is called via atexit, lifespan, and SIGTERM/SIGINT ✅
+SSH closed: frontend/app.py finally-block calls await tunnel_mgr.close(ssh) ✅
+Frontend updates with failures: reporter_html.py does generate a report, and index.html filter-by-failures works ✅
+
+⚠️ Bug — Lock not released if backend never starts: If _wait_for_port times out, nohup may have spawned the backend on the bastion with the lock acquired. The frontend gives up, closes the tunnel, and the backend on the bastion holds /tmp/cloud_health/hc.lock forever (until the heartbeat watchdog kicks in 60s later — but that only fires after the first activity, not from process start).
+[FIXED] SSH cleanup on timeout: pkill -f '/tmp/cloud_health/main.py' and rm -f /tmp/cloud_health/hc.lock sent before raising.
+
+⚠️ Bug in _release_lock(): It tests payload.get("pid") == os.getpid(). The lock file holds pid as an integer (from os.getpid()), but the code branch that handles isinstance(owner_pid, str) only does the str→int coercion in _acquire_lock(), not in _release_lock(). Edge case if the file was written by a different process version — release silently does nothing.
+[FIXED] _release_lock() now coerces owner_pid from str to int before comparing to os.getpid().
+
+⚠️ Bug — Heartbeat starts at process start time: _LAST_ACTIVITY = time.monotonic() is set at module import. If a check run takes >60s with no WebSocket message before the first headline, the watchdog will kill the backend mid-run. The heartbeat is reset on each activity after messages flow, but there's a window during cluster connect/SFTP push where it could trigger.
+[FIXED] _broadcast() resets _LAST_ACTIVITY = time.monotonic() at the top on every outbound message, eliminating the startup window.
+
+
+❌ 9. All commands and responses logged to log file
+Not properly implemented.
+What exists:
+
+main.py calls logging.basicConfig(level=logging.INFO) — logs to stdout only, no file
+frontend/app.py::start() calls uvicorn.run(..., log_level="info") — also stdout
+Backend on bastion redirects via > /tmp/cloud_health/backend.log 2>&1 ✅ (only one log file)
+Section.append_log() stores command output in memory in raw_log ✅
+_lc() helpers in ocp_checks.py and cvim_checks.py append $ {cmd}\n{stdout}{stderr} to the section ✅
+
+⚠️ Bug — No persistent log file on the user's machine. Frontend logs go to console, not to disk. No logging.FileHandler is configured anywhere except backend stdout redirect.
+[IGNORED] Frontend/bootstrapper logging on the user's machine is not required; bastion logging takes priority.
+
+⚠️ Bug — Host checks don't log commands. host_checks.py uses SSHClient.run() directly and does NOT call sec.append_log() for every command. Some checks bypass logging entirely.
+[PARTIALLY FIXED] Per-host log file added (/tmp/cloud_health/log/host-{ip}_TIMESTAMP.log); _commands_logger wired in _check_node(). Individual command calls in host_checks.py do not yet call sec.append_log() explicitly.
+
+⚠️ Bug — Bootstrapper never logs. All print() calls — no log file is ever written for the SFTP sync, version checks, or sync errors.
+[IGNORED] Bootstrapper logging on user's machine not required.
+
+Two structured log files now created on each bastion under /tmp/cloud_health/log/:
+  system_YYYYMMDD_HHMMSS.log  — root logger (INFO+), stamped with [run=<uuid>] [user=<name>]
+  commands_YYYYMMDD_HHMMSS.log — isolated "commands" logger, command output only
+Per-host log: host-{ip}_YYYYMMDD_HHMMSS.log in same directory.
+max_log_files (default 5) configurable in config/config.yaml; oldest files rotated automatically.
+[FIXED] Backend logging on bastions fully implemented with rotation and correlation IDs.
+
+
+⚠️ 10. If connection terminates before completion, lock file prevents new healthcheck
+Working with caveats.
+The atomic lock (O_CREAT|O_EXCL) is correct ✅. PID-based stale-lock detection exists ✅.
+⚠️ Bug — Stale-lock detection across machines fails: The lock file lives on the bastion at /tmp/cloud_health/hc.lock. The PID stored is the PID on the bastion. If the frontend reconnects and _pid_exists(owner_pid) is checked, it checks the local frontend host, not the bastion. Since this code only runs inside the backend on the bastion (the lock is acquired in if __name__ == "__main__" of backend/main.py), this is OK — but it means the frontend has no way to query lock status before pushing/launching. So the frontend may try to launch a 2nd backend and the second one will just exit on lock conflict. The user's spec is met but the UX is poor.
+[PENDING] Frontend cannot query bastion lock status before launch; a conflicting backend will exit silently on lock conflict.
+
+⚠️ Bug — Per-bastion lock, not per-cluster: The lock is at /tmp/cloud_health/hc.lock. If two clusters share a bastion (multi-tenant installer), the second cluster will fail to acquire the lock. Probably not your scenario, but worth flagging.
+[IGNORED] Multi-tenant bastion sharing is not a supported scenario.
+
+
+❌ 11. After all backend processes & SSH connections close, bootstrapper exits, browser stays open
+Not implemented.
+As noted in #4: the bootstrapper runs Popen() and immediately exits. It does not wait for the frontend, does not monitor backend completion, and does not coordinate cleanup. The browser tab opened by the bootstrapper is the credential prompt at port 9000 — which is closed by server.shutdown() at line 35 of main(), before the frontend is even launched. The frontend then opens its own tab at port 8080 in frontend/app.py::start() via threading.Timer.
+So the actual behavior is:
+
+Bootstrapper opens credential popup tab → closes it after submission
+Bootstrapper spawns frontend → exits immediately
+Frontend opens a NEW browser tab at port 8080 → stays open as long as uvicorn.run() runs (it never shuts itself down)
+
+The frontend never auto-shuts after healthcheck completion — it stays running indefinitely. The browser tab stays open because nothing closes it. So functionally the outcome matches your spec by accident, but the bootstrapper-coordination part of the spec is not implemented at all.
+[IGNORED] Bootstrapper-to-frontend coordination not required; browser tab remains open via frontend uvicorn — outcome matches spec.
+
+
+Summary of Bug Statuses
+#  Severity  Bug                                                        Status
+1  🔴 High   Bootstrapper does NOT retry on failed credentials          FIXED
+2  🔴 High   Bootstrapper does NOT use cached credentials               FIXED
+3  🔴 High   Bootstrapper saves credentials before validating them      FIXED
+4  🔴 High   Bootstrapper does NOT install dependencies                 FIXED
+5  🔴 High   Bootstrapper does NOT wait for the program — exits Popen   IGNORED
+6  🔴 High   No persistent log file on user's machine                   IGNORED
+7  🟡 Medium Path mismatches (version_sync, credentials, config)        FIXED
+8  🟡 Medium Host checks don't log commands to raw_log                  PARTIALLY FIXED
+9  🟡 Medium Heartbeat watchdog can fire during slow cluster connect     FIXED
+10 🟡 Medium Lock orphaned if backend launches but tunnel dies           FIXED
+11 🟢 Low    Section._push() silently drops messages on QueueFull       FIXED
+12 🟢 Low    Bootstrapper errors invisible in PyInstaller .exe           FIXED
+
+Pending items (2):
+- No credential validation before SFTP push (Issue 6)
+- Stale-lock: frontend cannot query bastion lock status before launch (Issue 10)
