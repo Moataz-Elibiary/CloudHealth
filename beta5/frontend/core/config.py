@@ -9,17 +9,17 @@ import sys
 from pathlib import Path
 from typing import List, Optional
 
-BASE_DIR         = Path(__file__).resolve().parent.parent.parent
-BACKEND_DIR      = BASE_DIR / "backend"
-BACKEND_CORE_DIR = BACKEND_DIR / "core"
+BASE_DIR           = Path(__file__).resolve().parent.parent.parent
+BACKEND_DIR        = BASE_DIR / "backend"
+BACKEND_ENGINE_DIR = BACKEND_DIR / "engine"
 
-# Add backend/core to path so 'inventory' is importable as a top-level module
+# Add backend/engine to path so 'inventory' is importable as a top-level module
 # (avoids conflict with frontend/core which is also named 'core')
-for _p in (str(BACKEND_DIR), str(BACKEND_CORE_DIR)):
+for _p in (str(BACKEND_DIR), str(BACKEND_ENGINE_DIR)):
     if _p not in sys.path:
         sys.path.insert(0, _p)
 
-from inventory import (  # noqa: E402  — resolves to backend/core/inventory.py
+from inventory import (  # noqa: E402  — resolves to backend/engine/inventory.py
     InventoryLoader, AppSettings, ClusterConfig, NodeConfig
 )
 

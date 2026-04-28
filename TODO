@@ -146,7 +146,7 @@ These items from the earlier plan are confirmed complete in beta5 and excluded f
 - Add `/api/history?limit=30` and `/api/history/{run_id}` endpoints
 - Indexes: `runs(started_at DESC)`, `cluster_results(run_id, cluster_name)`, `check_results(run_id, cluster_name, status)`
 
-**Files affected:** new `frontend/core/history_db.py`, `frontend/app.py`, `config/config.yaml`, `backend/core/inventory.py` (add `history_max_runs` to AppSettings)
+**Files affected:** new `frontend/core/history_db.py`, `frontend/app.py`, `config/config.yaml`, `backend/engine/inventory.py` (add `history_max_runs` to AppSettings)
 
 ---
 
@@ -229,7 +229,7 @@ These items from the earlier plan are confirmed complete in beta5 and excluded f
 - Reports: any new errors? Any check returning differently? Promote or roll back
 - "Promote" button — removes the test directory and confirms next real run uses the new version
 
-**Files affected:** `frontend/static/index.html`, `frontend/app.py`, `backend/core/inventory.py`, `frontend/core/history_db.py`
+**Files affected:** `frontend/static/index.html`, `frontend/app.py`, `backend/engine/inventory.py`, `frontend/core/history_db.py`
 
 ---
 
