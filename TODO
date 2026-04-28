@@ -257,7 +257,7 @@ These items from the earlier plan are confirmed complete in beta5 and excluded f
 
 **Tasks:**
 - New "Schedules" tab in frontend showing existing schedules per cluster
-- Per-cluster cron expression (e.g., "0 6 * * *" = daily 6am)
+- Per-cluster cron expression (e.g., "0 6 * * *" = daily 6am, or after 1 hr execute)
 - Enable/disable toggle per schedule
 - Backend daemon mode: `python3 main.py --daemon`
 - Daemon polls `schedules` table every minute, triggers runs at scheduled times
@@ -266,6 +266,18 @@ These items from the earlier plan are confirmed complete in beta5 and excluded f
 - Webhook field per schedule (POST to URL with summary JSON on completion) — foundation for Slack/email alerts
 
 **Files affected:** new `backend/scheduler.py`, `frontend/static/index.html`, `frontend/app.py`, `frontend/core/history_db.py`
+
+---
+## Priority 6 — Enhance User-Interface
+
+### 🟡 P6.1 — Update the frontend UI
+**Why medium:** 
+
+**Tasks:**
+- Organize the final UI report and arrange it per cluster.
+- Add flyout text to the configuration tab in the index.html, to guide the user with description and recommended value.
+- Add Performce KPI report from history DB and cluster prometheus KPIs.
+- Update the README file with all files hierarichal structure everywhere (on source server, bastion server, user Documents, ...)
 
 ---
 
