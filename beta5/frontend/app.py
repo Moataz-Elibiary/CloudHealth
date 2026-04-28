@@ -160,9 +160,22 @@ async def api_checks():
     return CHECK_CATEGORIES
 
 
+def _resolve_config_path() -> Path:
+    """Locate config.yaml — prefer config/config.yaml, then fall back to
+    config.yaml at the repo root (matches the lookup order used in
+    _run_all_clusters). For writes, the same path is used; if neither
+    exists we default to config/config.yaml so first-time saves land in
+    the canonical location."""
+    candidates = (ROOT_DIR / "config" / "config.yaml", ROOT_DIR / "config.yaml")
+    for p in candidates:
+        if p.exists():
+            return p
+    return candidates[0]
+
+
 @app.get("/api/config")
 async def api_config_get():
-    config_path = ROOT_DIR / "config.yaml"
+    config_path = _resolve_config_path()
     if not config_path.exists():
         return {}
     try:
@@ -176,7 +189,8 @@ async def api_config_get():
 async def api_config_post(request: Request):
     try:
         new_config  = await request.json()
-        config_path = ROOT_DIR / "config.yaml"
+        config_path = _resolve_config_path()
+        config_path.parent.mkdir(parents=True, exist_ok=True)
         with open(config_path, "w") as f:
             yaml.dump(new_config, f, default_flow_style=False, sort_keys=False)
         return {"status": "success"}

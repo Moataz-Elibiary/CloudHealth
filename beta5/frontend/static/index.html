@@ -200,6 +200,11 @@ body{font-family:'Inter',system-ui,sans-serif;background:linear-gradient(135deg,
         <div class="cfg-group"><label class="cfg-label">Max Nodes</label><input class="cfg-input" id="c_max_parallel_nodes" type="number" placeholder="10"></div>
         <div class="cfg-group"><label class="cfg-label">SSH Timeout</label><input class="cfg-input" id="c_ssh_timeout" type="number" placeholder="30"></div>
         <div class="cfg-group"><label class="cfg-label">CMD Timeout</label><input class="cfg-input" id="c_cmd_timeout" type="number" placeholder="60"></div>
+        <div class="cfg-section-label">Backend</div>
+        <div class="cfg-group"><label class="cfg-label">Backend Port</label><input class="cfg-input" id="c_backend_port" type="number" placeholder="8100"></div>
+        <div class="cfg-group"><label class="cfg-label">Heartbeat Timeout</label><input class="cfg-input" id="c_heartbeat_timeout" type="number" placeholder="60"></div>
+        <div class="cfg-section-label">Logging</div>
+        <div class="cfg-group"><label class="cfg-label">Max Log Files</label><input class="cfg-input" id="c_max_log_files" type="number" placeholder="5"></div>
         <div class="cfg-section-label">Thresholds</div>
         <div class="cfg-group"><label class="cfg-label">Disk %</label><input class="cfg-input" id="c_disk_percent" type="number" placeholder="85"></div>
         <div class="cfg-group"><label class="cfg-label">Mem Warn %</label><input class="cfg-input" id="c_mem_warn" type="number" placeholder="80"></div>
@@ -299,17 +304,32 @@ async function init() {
   if(cfg.last_enabled_checks?.length) restoreCheckSelection(cfg.last_enabled_checks, checks);
 }
 
+// Top-level config.yaml keys ↔ input element IDs. Shared by populateConfig
+// (load) and the Save handler so adding a new field only needs one edit.
+const CFG_FIELD_MAP = {
+  c_parallel_limit:     'parallel_limit',
+  c_max_parallel_nodes: 'max_parallel_nodes',
+  c_ssh_timeout:        'ssh_timeout',
+  c_cmd_timeout:        'cmd_timeout',
+  c_backend_port:       'backend_port',
+  c_heartbeat_timeout:  'heartbeat_timeout',
+  c_max_log_files:      'max_log_files',
+  c_output_dir:         'output_dir',
+  c_inventory_file:     'inventory_file',
+};
+const CFG_THRESHOLD_MAP = {
+  c_disk_percent:'disk_percent', c_mem_warn:'mem_warn', c_mem_fail:'mem_fail',
+  c_swap_warn:'swap_warn', c_load_warn:'load_warn', c_load_fail:'load_fail',
+};
+
 function populateConfig(cfg) {
-  const map = {
-    c_parallel_limit:'parallel_limit', c_max_parallel_nodes:'max_parallel_nodes',
-    c_ssh_timeout:'ssh_timeout', c_cmd_timeout:'cmd_timeout',
-    c_output_dir:'output_dir', c_inventory_file:'inventory_file',
-  };
-  Object.entries(map).forEach(([id,key]) => { if(cfg[key]!==undefined && $(id)) $(id).value=cfg[key]; });
+  Object.entries(CFG_FIELD_MAP).forEach(([id,key]) => {
+    if(cfg[key]!==undefined && $(id)) $(id).value=cfg[key];
+  });
   const thr = cfg.thresholds||{};
-  const thrMap = {c_disk_percent:'disk_percent',c_mem_warn:'mem_warn',c_mem_fail:'mem_fail',
-                  c_swap_warn:'swap_warn',c_load_warn:'load_warn',c_load_fail:'load_fail'};
-  Object.entries(thrMap).forEach(([id,key]) => { if(thr[key]!==undefined && $(id)) $(id).value=thr[key]; });
+  Object.entries(CFG_THRESHOLD_MAP).forEach(([id,key]) => {
+    if(thr[key]!==undefined && $(id)) $(id).value=thr[key];
+  });
 }
 
 // ── Render check groups ────────────────────────────────────────────────────
@@ -375,17 +395,12 @@ function restoreCheckSelection(ids, categories) {
 // ── Save config ────────────────────────────────────────────────────────────
 $('saveBtn').onclick = () => {
   $('saveBtn').disabled=true; $('saveBtn').textContent='Saving…';
-  const map={c_parallel_limit:'parallel_limit',c_max_parallel_nodes:'max_parallel_nodes',
-              c_ssh_timeout:'ssh_timeout',c_cmd_timeout:'cmd_timeout',
-              c_output_dir:'output_dir',c_inventory_file:'inventory_file'};
-  Object.entries(map).forEach(([id,key])=>{
+  Object.entries(CFG_FIELD_MAP).forEach(([id,key])=>{
     const el=$(id); if(!el) return;
     configData[key] = el.type==='number' ? (el.step?parseFloat(el.value):parseInt(el.value)) : el.value;
   });
   if(!configData.thresholds) configData.thresholds={};
-  const thrMap={c_disk_percent:'disk_percent',c_mem_warn:'mem_warn',c_mem_fail:'mem_fail',
-                c_swap_warn:'swap_warn',c_load_warn:'load_warn',c_load_fail:'load_fail'};
-  Object.entries(thrMap).forEach(([id,key])=>{
+  Object.entries(CFG_THRESHOLD_MAP).forEach(([id,key])=>{
     const el=$(id); if(!el) return;
     configData.thresholds[key] = el.step?parseFloat(el.value):parseInt(el.value);
   });
