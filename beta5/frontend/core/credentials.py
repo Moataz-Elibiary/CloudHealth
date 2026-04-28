@@ -7,7 +7,7 @@ transitive dependency of paramiko, so zero extra installation required).
 Key derivation: PBKDF2-HMAC-SHA256 from the user-supplied password.
 Salt: stored alongside the ciphertext in the cache file.
 
-Cache file: ~/.cloud_health/credentials.cache
+Cache file: ~/Documents/cloud_health/credentials.cache
 """
 from __future__ import annotations
 import base64
@@ -21,7 +21,7 @@ from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
 
 
-CACHE_DIR  = Path.home() / ".cloud_health"
+CACHE_DIR  = Path.home() / "Documents" / "cloud_health"
 CACHE_FILE = CACHE_DIR / "credentials.cache"
 PBKDF2_ITERATIONS = 480_000   # OWASP 2023 recommendation
 

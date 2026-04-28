@@ -45,7 +45,7 @@ def load_app_config(
     DEFAULT_CONFIGS = [
         Path("config/config.yaml"),
         Path("cloudhealth.yaml"),
-        Path.home() / ".cloud_health" / "config.yaml",
+        Path.home() / "Documents" / "cloud_health" / "config.yaml",
     ]
     DEFAULT_INVENTORIES = [
         Path("config/inventory.xlsx"),

@@ -33,43 +33,9 @@ from core.ws_proxy      import WSProxy
 from core.reporter_html import HTMLReporter
 from core.result        import ClusterResult
 
-# ── Frontend logging ──────────────────────────────────────────────────────────
-
-class _FrontendRunFilter(logging.Filter):
-    def __init__(self):
-        super().__init__()
-        self.run_id  = "-"
-        self.user_id = "-"
-
-    def filter(self, record):
-        record.run_id  = self.run_id
-        record.user_id = self.user_id
-        return True
-
-_FRONTEND_RUN_FILTER = _FrontendRunFilter()
+# Frontend logger — emits to stderr only; no log files are written on the
+# user's machine. All persistent logs live on the bastion side.
 log = logging.getLogger("frontend.app")
-
-
-def _setup_frontend_logging(log_dir: Path, max_files: int = 5) -> None:
-    """Rotate frontend-YYYYMMDD.log (one per day, keep last max_files days)."""
-    log_dir.mkdir(parents=True, exist_ok=True)
-    old = sorted(log_dir.glob("frontend-*.log"), key=lambda p: p.stat().st_mtime)
-    today_file = log_dir / f"frontend-{datetime.now().strftime('%Y%m%d')}.log"
-    # Only count files that are NOT today's file toward the rotation limit
-    old_not_today = [p for p in old if p != today_file]
-    while len(old_not_today) >= max_files:
-        old_not_today.pop(0).unlink(missing_ok=True)
-
-    fmt = logging.Formatter(
-        "%(asctime)s [%(levelname)s] [run=%(run_id)s] [user=%(user_id)s] %(name)s: %(message)s",
-        datefmt="%Y-%m-%d %H:%M:%S")
-    handler = logging.FileHandler(today_file, mode="a", encoding="utf-8")
-    handler.setFormatter(fmt)
-    handler.addFilter(_FRONTEND_RUN_FILTER)
-
-    root = logging.getLogger()
-    root.setLevel(logging.INFO)
-    root.addHandler(handler)
 
 
 # ── App ───────────────────────────────────────────────────────────────────────
@@ -281,14 +247,14 @@ async def _run_all_clusters(ui_ws: WebSocket, enabled_checks=None):
     LAST_RESULTS        = []
     LATEST_REPORT_PATH  = None
 
-    # Generate correlation IDs for this run
+    # Generate correlation IDs for this run — propagated to the bastion
+    # backend so its logs can be correlated, but never persisted on the
+    # user's machine.
     run_id  = str(uuid.uuid4())
     try:
         user_id = os.getlogin()
     except Exception:
         user_id = os.environ.get("USER") or os.environ.get("USERNAME") or "unknown"
-    _FRONTEND_RUN_FILTER.run_id  = run_id
-    _FRONTEND_RUN_FILTER.user_id = user_id
 
     log.info("Run started — clusters initialising")
 
@@ -356,9 +322,6 @@ async def _run_all_clusters(ui_ws: WebSocket, enabled_checks=None):
             "path":   LATEST_REPORT_PATH,
             "count":  len(results),
         })
-
-    _FRONTEND_RUN_FILTER.run_id  = "-"
-    _FRONTEND_RUN_FILTER.user_id = "-"
 
 
 async def _run_with_sem(sem, ui_ws, cluster, app_settings, output_dir, run_id, user_id):
@@ -490,17 +453,12 @@ async def _wait_for_port(port: int, timeout_s: float = 20.0):
 # ── Entry point ───────────────────────────────────────────────────────────────
 
 def start(app_config=None):
-    max_log_files = 5
-    for _cp in (ROOT_DIR / "config" / "config.yaml", ROOT_DIR / "config.yaml"):
-        if _cp.exists():
-            try:
-                _cfg = yaml.safe_load(_cp.read_text()) or {}
-                max_log_files = int(_cfg.get("max_log_files", 5))
-            except Exception:
-                pass
-            break
-    log_dir = Path.home() / "Documents" / "cloud_health" / "log"
-    _setup_frontend_logging(log_dir, max_files=max_log_files)
+    # User-data root is created lazily by features that write to it
+    # (credentials cache, reports, etc). No log files are written on the
+    # user's machine — bastion-side logs remain the source of truth.
+    USER_DATA_DIR = Path.home() / "Documents" / "cloud_health"
+    USER_DATA_DIR.mkdir(parents=True, exist_ok=True)
+
     threading.Timer(
         1.5, lambda: webbrowser.open("http://127.0.0.1:8080")).start()
     uvicorn.run(app, host="127.0.0.1", port=8080, log_level="warning")
