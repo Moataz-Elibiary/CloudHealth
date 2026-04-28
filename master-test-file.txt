@@ -1,5 +1,0 @@
-Test file created directly on master branch by Claude Code.
-
-Branch: master
-Created: 2026-04-28
-Purpose: Demonstrating direct commits to master branch
