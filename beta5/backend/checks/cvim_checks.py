@@ -5,7 +5,7 @@ from datetime import datetime
 from typing import List, Optional
 import logging
 
-from core.inventory import ClusterConfig, AppSettings as AppConfig, resolve_threshold
+from engine.inventory import ClusterConfig, AppSettings as AppConfig, resolve_threshold
 from result import SectionResult as Section, Status
 from ssh_client import SSHClient
 
