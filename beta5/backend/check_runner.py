@@ -17,7 +17,7 @@ from typing import Callable, Optional, Set
 
 from result import ClusterResult, SectionResult
 from ssh_client import LocalClient, SSHClient
-from core.inventory import AppSettings, ClusterConfig, NodeConfig
+from engine.inventory import AppSettings, ClusterConfig, NodeConfig
 
 from checks.cvim_checks import CVIMHealthChecker
 from checks.host_checks  import HostHealthChecker
