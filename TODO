@@ -1,0 +1,316 @@
+# CloudHealth Beta5 — Prioritized ToDo List (v2)
+
+**Generated:** 2026-04-28
+**Source:** Analysis of beta5 against the prior "Bug Fix & Enhancement Plan"
+**Status legend:** 🔴 Critical · 🟠 High · 🟡 Medium · 🟢 Low
+
+---
+
+## Design Decisions (locked in for this revision)
+
+These five decisions are now binding constraints across all tasks below:
+
+1. **User data location:** All program data lives at `~/Documents/cloud_health/`. The legacy `~/.cloud_health/` path is no longer used anywhere in the codebase — no fallback, no auto-migration, just a clean cutover. Existing users on beta5 will need to re-enter credentials once after upgrade (acceptable cost for a clean state).
+2. **Windows .exe signing:** No code signing. The .exe will trigger Windows SmartScreen warnings on first run. Document this in the user README so users know to click "More info → Run anyway."
+3. **History DB retention:** `history_max_runs` exposed in `config.yaml` (default `200`); fully user-configurable.
+4. **Cancel semantics:** Partial results saved to history DB with `status='CANCELLED'`. Provides audit trail of what was completed before cancellation.
+5. **Pre-flight strictness:** Default behaviour blocks the run on any cluster failure. UI provides an "Ignore failures and proceed anyway" override checkbox.
+
+---
+
+## What's Already Done in Beta5 (no action needed)
+
+These items from the earlier plan are confirmed complete in beta5 and excluded from the ToDo below:
+
+- Bootstrapper retry loop on credential failure (3 attempts)
+- `load_creds()` called at startup; popup skipped when cached creds work
+- `save_creds()` moved to after successful validation
+- Path mismatches reconciled in beta5 (further cleanup in P1.1 below)
+- Dependency bundling via `vendor/` + offline `pip install`
+- Bastion-side log rotation (system, commands, host logs with `max_log_files`)
+- Correlation ID (`run_id`, `user_id`) generated and stamped on every log line, propagated through WebSocket
+- Frontend logging to `~/Documents/cloud_health/log/frontend-YYYYMMDD.log`
+- `_push()` backpressure fix (no more dropped check messages)
+- Lock cleanup on `_wait_for_port` timeout
+- Bootstrapper error visible in browser via `/status` polling
+
+---
+
+## Priority 1 — Critical Foundation (do these first)
+
+### 🔴 P1.1 — Migrate ALL user data to `~/Documents/cloud_health/`
+**Why first:** Beta5 is half-migrated. Frontend logs go to `~/Documents/cloud_health/log/` but credentials, program directory, version file, and salt all still live in `~/.cloud_health/`. Per design decision 1, the legacy path is being eliminated entirely.
+
+**Tasks:**
+- Define a single `USER_DATA_DIR = Path.home() / "Documents" / "cloud_health"` constant in a shared module (e.g. `bootstrapper/paths.py` or read from a tiny config in both bootstrapper and frontend)
+- Move credential cache: `~/.cloud_health/.creds_cache` → `~/Documents/cloud_health/credentials.cache`
+- Move salt file: `~/.cloud_health/.salt` → `~/Documents/cloud_health/.salt`
+- Move version file: `~/.cloud_health/version.txt` → `~/Documents/cloud_health/version.txt`
+- Move program directory: `~/.cloud_health/program/` → `~/Documents/cloud_health/program/`
+- Move `.meta` file: `~/.cloud_health/.meta` → `~/Documents/cloud_health/.meta`
+- Update `frontend/core/credentials.py`: `CACHE_DIR = Path.home() / "Documents" / "cloud_health"`
+- Update `bootstrapper/bootstrapper.py`: all `CACHE_DIR`-derived paths
+- **No fallback to `~/.cloud_health/`** — per design decision 1, hard cutover
+- Add a single startup check that creates `~/Documents/cloud_health/` and required subdirs (`log/`, `db/`, `program/`, `outputs/`) if missing
+- Update README to document the new location and note that existing beta5 users must re-enter credentials once
+
+**Files affected:** `bootstrapper/bootstrapper.py`, `frontend/core/credentials.py`, `frontend/core/config.py`, `frontend/app.py`, `README.md`
+
+---
+
+### 🔴 P1.2 — No-install Windows bootstrapper executable
+**Why first:** Currently the bootstrapper assumes Python is installed on the user's Windows machine. Most ops users don't have admin rights and can't install Python. This is the #1 first-time-user failure mode.
+
+**Tasks:**
+- Create PyInstaller build spec: `--onefile --noconsole --name CloudHealth-Bootstrap.exe`
+- Bundle Python runtime + paramiko + cryptography + http.server inside the exe
+- Add a small `.bat` wrapper for users who want to see console output during troubleshooting
+- Test on locked-down Windows 10/11 (no admin, AppLocker, Windows Defender SmartScreen)
+- **No code signing** per design decision 2 — accept SmartScreen warning
+- Document in README the SmartScreen workflow: "Click More info → Run anyway" with screenshot
+- Add build script to repo: `bootstrapper/build.bat` (Windows) and `bootstrapper/build.sh` (Linux/Mac for cross-build via wine if needed)
+- Verify the exe runs correctly on a clean Windows machine with no Python installed
+
+**Files affected:** new `bootstrapper/build.spec`, new `bootstrapper/build.bat`, new `bootstrapper/build.sh`, repo `README.md`
+
+---
+
+### 🔴 P1.3 — Pre-flight credential validation before SFTP push
+**Why first:** Carry-over from earlier review (still PENDING per beta5 issues file). Currently if SSH auth fails on a cluster bastion, the user only sees a generic exception. Must validate connectivity + auth + Python availability across all selected clusters before starting the actual run.
+
+**Tasks:**
+- New module `frontend/core/preflight.py`
+- For each selected cluster: try SSH connect → run `python3 --version` → check `/opt/cloud_health/version.txt` accessible
+- Aggregate results into a table: `cluster | reachable | auth OK | python ready | backend version | status`
+- Display table in browser before allowing Run to proceed
+- **Default behaviour blocks the run on any cluster failure** per design decision 5
+- Provide checkbox: "Ignore failures and proceed anyway" (default unchecked)
+- Optional "Skip pre-flight" checkbox for power users (default: pre-flight enabled)
+- On version change (newly pushed backend), do deeper pre-flight: actually start the backend on each bastion and ping it before declaring ready
+- Pre-flight runs in parallel respecting `parallel_limit`
+- Pre-flight result table also written to history DB (when P3.1 lands) for audit
+
+**Files affected:** new `frontend/core/preflight.py`, `frontend/app.py` (add WebSocket action `preflight`), `frontend/static/index.html` (preflight UI with override checkbox)
+
+---
+
+## Priority 2 — Core User Control & Reliability
+
+### 🟠 P2.1 — Cancel / Stop button (with partial results saved)
+**Why high:** Once a run starts, the user has no way to abort cleanly. Closing the browser orphans backends until the heartbeat watchdog kicks in. Blocks confident production use.
+
+**Tasks:**
+- Add "Stop" button to `frontend/static/index.html`, visible only when run is active
+- New WebSocket action `cancel` from UI → frontend
+- Frontend cancels `_RUN_TASK` on each cluster, sends `cancel` action over the SSH-tunneled WebSocket to each bastion backend
+- Backend cancels its `_RUN_TASK`, releases lock, kills any in-flight SSH sessions per cluster
+- **Partial results saved to history DB with `status='CANCELLED'`** per design decision 4 (when P3.1 lands; until then, save to `results.json` with cancelled marker)
+- Frontend tunnel manager closes all tunnels on cancel
+- Test partial-state cleanup: cancel during SFTP push, during check execution, during cleanup
+- UI shows "Cancelling…" → "Cancelled" state clearly
+- Cancelled runs visible in history view (P3.2) with a distinct icon
+
+**Files affected:** `frontend/static/index.html`, `frontend/app.py`, `frontend/core/ws_proxy.py`, `backend/main.py`, `backend/check_runner.py`
+
+---
+
+### 🟠 P2.2 — Bug carry-overs from earlier review
+**Why high:** These are real defects that affect production stability. Renumbered from P2.3 in v1 because we want them addressed alongside Cancel.
+
+**Tasks:**
+- **Frontend lock-state query:** Add `/api/lock_status` to backend, queried by frontend before launching second backend on same bastion. Surface "Another run in progress (PID X, started Y)" instead of silent backend exit
+- **Host checks command logging:** Refactor `backend/checks/host_checks.py` so every `ssh.run()` call routes through `_r()` helper that calls `sec.append_log()` — same pattern as `ocp_checks.py` and `cvim_checks.py`
+- **Backend log readback on launch failure:** When `_wait_for_port` times out, read last 50 lines of `/tmp/cloud_health/backend.log` over SSH and surface to frontend instead of generic `TimeoutError`
+
+**Files affected:** `backend/main.py`, `backend/checks/host_checks.py`, `frontend/app.py`
+
+---
+
+## Priority 3 — Highest-Leverage Feature: History & Diff
+
+### 🟠 P3.1 — SQLite run history database
+**Why high:** Single most valuable feature in the entire backlog. Unlocks diff reporting, "view last run", trend analysis, scheduled runs, and any future alerting. Cost is small (~200 lines of code), value is huge.
+
+**Tasks:**
+- New module `frontend/core/history_db.py`
+- Database file: `~/Documents/cloud_health/db/history.db`
+- Schema:
+  - `runs(id PK, run_id, user, started_at, finished_at, cluster_count, status, source ENUM[ui,cli,scheduled,dry_run])`
+  - `cluster_results(run_id FK, cluster_name, cluster_type, pass_count, fail_count, warn_count, duration_s, status, login_success)`
+  - `check_results(run_id FK, cluster_name, section, check_id, status, message, detail, command)`
+  - `schedules(id PK, cluster_name, cron_expr, enabled, last_run, next_run)` — placeholder for P5.2
+- Write on every completed run (including cancelled) in a single transaction
+- **Pruning policy:** retain last `history_max_runs` runs per design decision 3
+- Add `history_max_runs: 200` to `config.yaml` with comment explaining the variable
+- Read `history_max_runs` from config; on each new run completion, prune oldest beyond the limit
+- Add `/api/history?limit=30` and `/api/history/{run_id}` endpoints
+- Indexes: `runs(started_at DESC)`, `cluster_results(run_id, cluster_name)`, `check_results(run_id, cluster_name, status)`
+
+**Files affected:** new `frontend/core/history_db.py`, `frontend/app.py`, `config/config.yaml`, `backend/core/inventory.py` (add `history_max_runs` to AppSettings)
+
+---
+
+### 🟠 P3.2 — "View last results" prompt + History tab
+**Why high:** Direct user request from the original 14 items. Pairs naturally with P3.1.
+
+**Tasks:**
+- On Run button click: query `/api/history?limit=1` → if last run was within N minutes (configurable via `last_run_prompt_minutes` in config.yaml, default 5), show modal:
+  - "Last run was 3 minutes ago by `username`. View those results / Run again / Run only failed clusters from last run"
+- Add "History" tab to sidebar showing last 30 runs (timestamp, user, cluster count, P/F/W counts, status icon including CANCELLED)
+- Click any historical run → renders the report from saved data without re-running
+- "Run only failed clusters" pre-selects clusters from the last run that had `fail_count > 0` (depends on P2.2 per-cluster selection — note P2.2 was renumbered, see Execution Order table)
+- Standalone "View History" entry point — useful when user just wants to check yesterday's results
+
+**Files affected:** `frontend/static/index.html`, `frontend/app.py`, `frontend/core/reporter_html.py`, `config/config.yaml`
+
+---
+
+### 🟠 P3.3 — Diff-from-last-run highlighting in report
+**Why high:** Direct user request. The "killer demo" feature — turns one-shot diagnostic into operational monitoring.
+
+**Tasks:**
+- On report generation, query DB for previous successful run's results for each cluster (skip cancelled runs as comparison baseline)
+- Compute diff per cluster: new failures, resolved failures, new warnings, status flips
+- Add "What's Changed" banner at top of report: "3 new failures since [previous run timestamp], 1 resolved, 2 new warnings"
+- Highlight new-failure rows with visual indicator (red border + "NEW" badge)
+- Highlight resolved rows with strikethrough + "RESOLVED" badge in a separate "Resolved" section
+- Export comparison summary in plain text for easy sharing (feeds into P4.1)
+
+**Files affected:** `frontend/core/reporter_html.py`, `frontend/core/history_db.py`
+
+---
+
+### 🟠 P3.4 — Per-cluster / per-node selection
+**Why high:** Renumbered from P2.2 in v1, moved here because the "rerun failed clusters" quick action depends on history DB (P3.1) being in place first.
+
+**Tasks:**
+- Add cluster list with checkboxes to frontend sidebar (load from new `/api/inventory` endpoint)
+- Sub-expansion per cluster showing nodes (from inventory or auto-discovered) with checkboxes
+- New WebSocket payload field `selected_clusters: [name1, name2]` and `selected_nodes: {cluster: [ip1, ip2]}`
+- Backend's `CheckRunner` honours node subset filter when discovering nodes
+- "Select all" / "Select failures from last run" / "Select cancelled clusters from last run" quick actions (the latter two depend on P3.1)
+- Persist last selection in `config.yaml` under `last_selected_clusters` and `last_selected_nodes`
+
+**Files affected:** `frontend/static/index.html`, `frontend/app.py`, `backend/check_runner.py`, new endpoint `/api/inventory`, `config/config.yaml`
+
+---
+
+## Priority 4 — Reporting & Sharing Polish
+
+### 🟡 P4.1 — Copy summary report button
+**Why medium:** Direct user request. Quality-of-life feature for sharing results in email/Slack/management updates.
+
+**Tasks:**
+- Add "Copy Summary" button to report toolbar
+- Generate plain markdown text:
+  - Header: run timestamp, user, total clusters
+  - One line per cluster: name, status icon, P/F/W counts
+  - Top failures list (max 10): cluster — reason
+  - Diff section if available (from P3.3): "X new failures since previous run"
+- Add "Copy as HTML" variant for richer paste into email
+- Optional redacted mode that strips IPs/hostnames for external sharing
+- Use clipboard API; fallback to textarea + select for older browsers
+
+**Files affected:** `frontend/core/reporter_html.py`, JS in report HTML template
+
+---
+
+### 🟡 P4.2 — Dry-run / canary test mode
+**Why medium:** Safety feature for validating new backend versions before fleet-wide rollout.
+
+**Tasks:**
+- Add `canary` boolean column to inventory schema
+- New "Dry Run" button (separate from "Run Health Check")
+- Pushes backend to `/tmp/cloud_health_test/` instead of `/tmp/cloud_health/`
+- Starts backend on different port (`backend_port + 1000`)
+- Runs only against clusters tagged `canary`
+- Stores results in DB with `source='dry_run'`
+- Compares against last production run for same canary clusters (via P3.3 diff logic)
+- Reports: any new errors? Any check returning differently? Promote or roll back
+- "Promote" button — removes the test directory and confirms next real run uses the new version
+
+**Files affected:** `frontend/static/index.html`, `frontend/app.py`, `backend/core/inventory.py`, `frontend/core/history_db.py`
+
+---
+
+## Priority 5 — Automation Tier
+
+### 🟡 P5.1 — CLI headless mode
+**Why medium:** Enables CI/CD integration and scripting. Less urgent than UI features but unlocks new use cases.
+
+**Tasks:**
+- New entry point in existing `main.py`: `cloudhealth run --clusters prod-east --checks etcd,nodes --output json --no-browser`
+- Reuses existing backend orchestration code (no frontend HTTP/browser)
+- Outputs JSON to stdout for piping
+- Exit codes: 0 = all pass, 1 = any warnings, 2 = any failures, 3 = any errors
+- `--quiet` flag for minimal output (just exit code)
+- `--diff` flag to compare against last run from history DB
+- CLI runs are written to history DB with `source='cli'` (per P3.1 schema)
+- Document examples in README for cron, GitHub Actions, etc.
+
+**Files affected:** `main.py`, new `frontend/core/cli_runner.py`
+
+---
+
+### 🟢 P5.2 — Scheduled daily runs per cluster
+**Why low:** Multiplies value of everything else, but requires P3.1 (history DB) and P2.1 (clean cancel) to be solid first. Don't build before foundation is rock-solid.
+
+**Tasks:**
+- New "Schedules" tab in frontend showing existing schedules per cluster
+- Per-cluster cron expression (e.g., "0 6 * * *" = daily 6am)
+- Enable/disable toggle per schedule
+- Backend daemon mode: `python3 main.py --daemon`
+- Daemon polls `schedules` table every minute, triggers runs at scheduled times
+- Lock check before starting scheduled run — must NOT conflict with manual runs
+- Results written to history DB with `source='scheduled'`
+- Webhook field per schedule (POST to URL with summary JSON on completion) — foundation for Slack/email alerts
+
+**Files affected:** new `backend/scheduler.py`, `frontend/static/index.html`, `frontend/app.py`, `frontend/core/history_db.py`
+
+---
+
+## Cross-Cutting Concerns (Apply to Every Phase)
+
+These aren't standalone tickets but standards to enforce on each task:
+
+- **Backwards compatibility:** Every change ships behind a version bump. Old backends should refuse new frontend protocol with a clear error
+- **No legacy fallback:** Per design decision 1, never reintroduce `~/.cloud_health/` paths anywhere — even as a "compatibility" fallback. Keep the cutover clean
+- **Test coverage:** Each priority block ends with a smoke test against a 3-cluster lab environment
+- **Documentation:** Each priority block updates `CHANGELOG.md` and the `docs/` directory
+- **Logging discipline:** Every new module uses the `run_id`/`user_id` correlation pattern already established in beta5
+- **Config discipline:** Every new tunable knob (history_max_runs, last_run_prompt_minutes, etc.) goes into `config/config.yaml` with a clear comment, never hard-coded
+
+---
+
+## Recommended Execution Order
+
+| Order | Priority | Task | Estimated Effort |
+|-------|----------|------|------------------|
+| 1 | 🔴 P1.1 | Migrate ALL user data to `~/Documents/cloud_health/` | Small |
+| 2 | 🔴 P1.2 | No-install Windows .exe (no code signing) | Medium |
+| 3 | 🔴 P1.3 | Pre-flight credential validation (block + override) | Medium |
+| 4 | 🟠 P2.2 | Bug carry-overs (lock query, host log, backend log readback) | Small-Medium |
+| 5 | 🟠 P2.1 | Cancel/Stop button (with cancelled status saved) | Medium |
+| 6 | 🟠 P3.1 | SQLite history DB (config-driven retention) | Medium |
+| 7 | 🟠 P3.2 | View-last-results + History tab | Medium |
+| 8 | 🟠 P3.3 | Diff-from-last-run highlighting | Medium |
+| 9 | 🟠 P3.4 | Per-cluster/per-node selection | Medium-Large |
+| 10 | 🟡 P4.1 | Copy summary report | Small |
+| 11 | 🟡 P4.2 | Dry-run / canary mode | Medium-Large |
+| 12 | 🟡 P5.1 | CLI mode | Medium |
+| 13 | 🟢 P5.2 | Scheduled runs | Large |
+
+---
+
+## Changelog from v1
+
+- All 5 design decisions integrated into the relevant tasks
+- P1.1 expanded with explicit file-by-file migration checklist; "no fallback" constraint added
+- P1.2 reflects decision to skip code signing; SmartScreen workflow documented
+- P1.3 makes default-block + override checkbox explicit
+- P2.1 wires the cancelled-status DB write into the cancel flow
+- P3.1 makes `history_max_runs` a config.yaml variable
+- P2.2 in v1 (per-cluster selection) renumbered to P3.4 because of dependency on P3.1
+- P2.3 in v1 (bug carry-overs) renumbered to P2.2
+- P3.4 quick actions now include "Select cancelled clusters from last run" (leveraging the cancel-status data)
+
