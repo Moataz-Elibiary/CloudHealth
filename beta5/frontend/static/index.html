@@ -69,6 +69,30 @@ body{font-family:'Inter',system-ui,sans-serif;background:linear-gradient(135deg,
 .run-btn{width:100%;padding:.9rem;border:none;border-radius:8px;font-size:1rem;font-weight:700;cursor:pointer;background:linear-gradient(135deg,var(--primary),#8b5cf6);color:#fff;transition:opacity .15s,transform .1s;margin-top:.5rem;font-family:'Inter',sans-serif}
 .run-btn:hover:not(:disabled){opacity:.9;transform:translateY(-1px)}
 .run-btn:disabled{opacity:.4;cursor:not-allowed;transform:none}
+.run-btn.secondary{background:transparent;border:1px solid var(--primary);color:var(--text);font-size:.85rem;padding:.65rem;font-weight:600}
+.run-btn.secondary:hover:not(:disabled){background:rgba(99,102,241,.1);transform:none}
+
+/* preflight controls + table */
+.preflight-opts{display:flex;flex-direction:column;gap:.35rem;margin-top:.75rem;padding:.65rem .8rem;background:rgba(15,23,42,.4);border:1px solid var(--glass-b);border-radius:6px}
+.pf-chk{display:flex;align-items:center;gap:.5rem;font-size:.74rem;color:var(--dim);cursor:pointer}
+.pf-chk input{accent-color:var(--primary);cursor:pointer}
+.preflight-panel{background:var(--glass);backdrop-filter:blur(12px);border:1px solid var(--glass-b);border-radius:var(--r);padding:1rem 1.25rem;margin-bottom:1.25rem;display:none}
+.preflight-panel.show{display:block}
+.preflight-panel h3{font-size:.85rem;font-weight:700;margin-bottom:.6rem;color:var(--primary);display:flex;align-items:center;gap:.4rem}
+.preflight-panel .pf-summary{font-size:.74rem;color:var(--dim);margin-bottom:.7rem}
+.preflight-panel .pf-summary.blocked{color:var(--fail);font-weight:600}
+.preflight-table{width:100%;border-collapse:collapse;font-size:.74rem}
+.preflight-table th,.preflight-table td{text-align:left;padding:.4rem .55rem;border-bottom:1px solid var(--glass-b);white-space:nowrap}
+.preflight-table th{font-weight:600;color:var(--dim);text-transform:uppercase;letter-spacing:.04em;font-size:.66rem;background:rgba(15,23,42,.3)}
+.preflight-table tr:last-child td{border-bottom:none}
+.pf-icon{display:inline-block;width:1.05rem;text-align:center}
+.pf-icon.ok{color:var(--pass)} .pf-icon.fail{color:var(--fail)} .pf-icon.muted{color:var(--dim);opacity:.5}
+.pf-status{font-weight:700;font-size:.7rem;padding:.15rem .45rem;border-radius:4px;letter-spacing:.04em}
+.pf-status.ok{background:rgba(34,197,94,.15);color:var(--pass)}
+.pf-status.fail{background:rgba(239,68,68,.15);color:var(--fail)}
+.pf-status.error{background:rgba(245,158,11,.15);color:var(--warn)}
+.pf-detail{color:var(--dim);font-size:.7rem;max-width:24rem;white-space:normal;overflow-wrap:anywhere}
+.pf-ts{font-family:ui-monospace,monospace;font-size:.68rem;color:var(--dim)}
 .save-btn{width:100%;padding:.5rem;border:1px solid var(--primary);border-radius:6px;background:transparent;color:var(--text);font-size:.78rem;font-weight:600;cursor:pointer;transition:all .15s;font-family:'Inter',sans-serif}
 .save-btn:hover{background:rgba(99,102,241,.1)}
 .save-ok{font-size:.72rem;color:var(--pass);margin-top:.3rem;display:none}
@@ -189,6 +213,11 @@ body{font-family:'Inter',system-ui,sans-serif;background:linear-gradient(135deg,
       <div id="checkGroups">
         <div style="text-align:center;color:var(--dim);padding:2rem 0;font-size:.82rem">Loading checks…</div>
       </div>
+      <div class="preflight-opts">
+        <label class="pf-chk"><input type="checkbox" id="opt_skip_preflight"> Skip pre-flight</label>
+        <label class="pf-chk"><input type="checkbox" id="opt_ignore_failures"> Ignore pre-flight failures and proceed</label>
+      </div>
+      <button class="run-btn secondary" id="preflightBtn">🛫 Run Pre-flight Only</button>
       <button class="run-btn" id="runBtn">🚀 Run Health Check</button>
     </div>
 
@@ -239,6 +268,22 @@ body{font-family:'Inter',system-ui,sans-serif;background:linear-gradient(135deg,
     <!-- Banners -->
     <div class="banner err" id="errBanner"></div>
     <div class="banner ok"  id="okBanner"></div>
+
+    <!-- Pre-flight panel -->
+    <div class="preflight-panel" id="preflightPanel">
+      <h3>🛫 Pre-flight Validation</h3>
+      <div class="pf-summary" id="preflightSummary"></div>
+      <div style="overflow-x:auto">
+        <table class="preflight-table">
+          <thead><tr>
+            <th>Cluster</th><th>Type</th><th>Bastion</th><th>Timestamp (UTC)</th>
+            <th>Reachable</th><th>Auth</th><th>Python</th><th>Backend Ver</th>
+            <th>Status</th><th>Detail</th>
+          </tr></thead>
+          <tbody id="preflightRows"></tbody>
+        </table>
+      </div>
+    </div>
 
     <!-- Filter bar -->
     <div class="filter-bar">
@@ -457,6 +502,10 @@ ws.onmessage = ({data}) => {
     case 'complete':       onClusterDone(m);            break;
     case 'error':          showError(m.cluster?`${m.cluster}: ${m.message}`:m.message); break;
     case 'reports_ready':  showReportReady(m);          break;
+    case 'preflight_started': onPreflightStarted(m);    break;
+    case 'preflight_result':  onPreflightResult(m.row); break;
+    case 'preflight_done':    onPreflightDone(m);       break;
+    case 'preflight_blocked': onPreflightBlocked(m);    break;
   }
 };
 
@@ -468,11 +517,13 @@ function handleRunState(m) {
     resetDashboard();
     $('runBtn').disabled=true;
     $('runBtn').textContent='⚙ Running…';
+    $('preflightBtn').disabled=true;
   }
   if(m.state==='finished') {
     state.running=false;
     $('runBtn').disabled=false;
     $('runBtn').textContent='🚀 Run Health Check';
+    $('preflightBtn').disabled=false;
     applyFilter();
   }
 }
@@ -642,6 +693,61 @@ function showReportReady(m) {
 
 function slug(s) { return (s||'').replace(/[^a-zA-Z0-9]/g,'_'); }
 
+// ── Pre-flight rendering ──────────────────────────────────────────────────
+function resetPreflightPanel() {
+  $('preflightRows').innerHTML = '';
+  $('preflightSummary').textContent = '';
+  $('preflightSummary').classList.remove('blocked');
+  $('preflightPanel').classList.remove('show');
+}
+function onPreflightStarted(m) {
+  resetPreflightPanel();
+  $('preflightPanel').classList.add('show');
+  $('preflightSummary').textContent =
+    `Validating ${m.total} cluster(s) — started ${m.started_at}`;
+}
+function onPreflightResult(row) {
+  $('preflightPanel').classList.add('show');
+  const tbody = $('preflightRows');
+  const tr = document.createElement('tr');
+  tr.dataset.cluster = row.cluster_name;
+  const ok   = '<span class="pf-icon ok">✓</span>';
+  const fail = '<span class="pf-icon fail">✕</span>';
+  const dash = '<span class="pf-icon muted">–</span>';
+  const reach = row.reachable    ? ok : fail;
+  const auth  = row.auth_ok      ? ok : (row.reachable ? fail : dash);
+  const py    = row.python_ready ? ok : (row.auth_ok   ? fail : dash);
+  const ver   = row.backend_version || '<span class="pf-icon muted">none</span>';
+  const stCls = row.status === 'OK' ? 'ok' : row.status === 'FAIL' ? 'fail' : 'error';
+  tr.innerHTML = `
+    <td>${esc(row.cluster_name)}</td>
+    <td>${esc(row.cluster_type||'')}</td>
+    <td>${esc(row.installer_ip||'')}</td>
+    <td class="pf-ts">${esc(row.timestamp||'')}</td>
+    <td>${reach}</td>
+    <td>${auth}</td>
+    <td>${py}${row.python_version?` <span class="pf-detail">${esc(row.python_version)}</span>`:''}</td>
+    <td>${ver}</td>
+    <td><span class="pf-status ${stCls}">${esc(row.status)}</span></td>
+    <td class="pf-detail">${esc(row.error||'')}</td>`;
+  // Replace existing row for the same cluster if present (idempotent)
+  const existing = tbody.querySelector(`tr[data-cluster="${CSS.escape(row.cluster_name)}"]`);
+  if(existing) existing.replaceWith(tr); else tbody.appendChild(tr);
+}
+function onPreflightDone(m) {
+  const failed = m.rows.filter(r => r.status !== 'OK').length;
+  const total  = m.rows.length;
+  $('preflightSummary').textContent = m.all_ok
+    ? `All ${total} cluster(s) ready.`
+    : `${failed} of ${total} cluster(s) failed pre-flight.`;
+  $('preflightSummary').classList.toggle('blocked', !m.all_ok);
+}
+function onPreflightBlocked(m) {
+  $('preflightSummary').textContent = m.message;
+  $('preflightSummary').classList.add('blocked');
+  showError(m.message);
+}
+
 // ── Run ────────────────────────────────────────────────────────────────────
 $('runBtn').onclick = () => {
   if(state.running) return;
@@ -651,9 +757,30 @@ $('runBtn').onclick = () => {
   }
   $('errBanner').classList.remove('show');
   $('okBanner').classList.remove('show');
-  const enabledChecks = [...document.querySelectorAll('.chk-opt:checked')].map(c=>c.value);
-  ws.send(JSON.stringify({action:'start_all', enabled_checks: enabledChecks}));
+  resetPreflightPanel();
+  const enabledChecks   = [...document.querySelectorAll('.chk-opt:checked')].map(c=>c.value);
+  const skipPreflight   = $('opt_skip_preflight').checked;
+  const ignoreFailures  = $('opt_ignore_failures').checked;
+  ws.send(JSON.stringify({
+    action:           'start_all',
+    enabled_checks:   enabledChecks,
+    skip_preflight:   skipPreflight,
+    ignore_failures:  ignoreFailures,
+  }));
   $('runBtn').disabled = true;
+};
+
+$('preflightBtn').onclick = () => {
+  if(state.running) return;
+  if(ws.readyState !== WebSocket.OPEN) {
+    showError('WebSocket not connected. Refresh the page.');
+    return;
+  }
+  $('errBanner').classList.remove('show');
+  $('okBanner').classList.remove('show');
+  resetPreflightPanel();
+  ws.send(JSON.stringify({action:'preflight'}));
+  $('preflightBtn').disabled = true;
 };
 
 // ── Boot ───────────────────────────────────────────────────────────────────

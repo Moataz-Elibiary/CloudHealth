@@ -11,7 +11,7 @@ Combines:
 """
 from __future__ import annotations
 import asyncio, dataclasses, json, logging, os, sys, threading, uuid, webbrowser
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import List, Optional
 
@@ -32,6 +32,7 @@ from core.tunnel_manager import TunnelManager, sftp_push_backend, allocate_local
 from core.ws_proxy      import WSProxy
 from core.reporter_html import HTMLReporter
 from core.result        import ClusterResult
+from core.preflight     import run_preflight, PreflightResult
 
 # Frontend logger — emits to stderr only; no log files are written on the
 # user's machine. All persistent logs live on the bastion side.
@@ -214,16 +215,30 @@ async def ui_websocket(websocket: WebSocket):
         while True:
             raw     = await websocket.receive_text()
             message = json.loads(raw)
-            if message.get("action") == "start_all":
+            action  = message.get("action")
+            if action == "start_all":
                 if active_run and not active_run.done():
                     await _safe_send(websocket, {
                         "type":    "error",
                         "message": "A run is already active for this session.",
                     })
                     continue
-                enabled = message.get("enabled_checks")
+                enabled          = message.get("enabled_checks")
+                skip_preflight   = bool(message.get("skip_preflight", False))
+                ignore_failures  = bool(message.get("ignore_failures", False))
                 active_run = asyncio.create_task(
-                    _run_guarded(websocket, enabled))
+                    _run_guarded(websocket, enabled,
+                                 skip_preflight=skip_preflight,
+                                 ignore_failures=ignore_failures))
+            elif action == "preflight":
+                if active_run and not active_run.done():
+                    await _safe_send(websocket, {
+                        "type":    "error",
+                        "message": "A run is already active for this session.",
+                    })
+                    continue
+                active_run = asyncio.create_task(
+                    _preflight_only(websocket))
     except WebSocketDisconnect:
         if active_run and not active_run.done():
             active_run.cancel()
@@ -237,7 +252,9 @@ async def _safe_send(ws: WebSocket, payload: dict) -> bool:
         return False
 
 
-async def _run_guarded(ui_ws: WebSocket, enabled_checks):
+async def _run_guarded(ui_ws: WebSocket, enabled_checks,
+                        skip_preflight: bool = False,
+                        ignore_failures: bool = False):
     if RUN_LOCK.locked():
         await _safe_send(ui_ws, {
             "type": "error",
@@ -247,6 +264,21 @@ async def _run_guarded(ui_ws: WebSocket, enabled_checks):
     async with RUN_LOCK:
         await _safe_send(ui_ws, {"type": "run_state", "state": "started"})
         try:
+            if not skip_preflight:
+                rows = await _run_preflight_phase(ui_ws)
+                if rows is None:
+                    return  # error already surfaced
+                blocking = [r for r in rows if r.status != "OK"]
+                if blocking and not ignore_failures:
+                    await _safe_send(ui_ws, {
+                        "type":    "preflight_blocked",
+                        "failed":  len(blocking),
+                        "total":   len(rows),
+                        "message": (f"Pre-flight failed for {len(blocking)} of "
+                                    f"{len(rows)} cluster(s). Tick 'Ignore "
+                                    f"failures and proceed anyway' to override."),
+                    })
+                    return
             await _run_all_clusters(ui_ws, enabled_checks)
         except asyncio.CancelledError:
             raise
@@ -254,6 +286,84 @@ async def _run_guarded(ui_ws: WebSocket, enabled_checks):
             await _safe_send(ui_ws, {"type": "error", "message": str(exc)})
         finally:
             await _safe_send(ui_ws, {"type": "run_state", "state": "finished"})
+
+
+async def _preflight_only(ui_ws: WebSocket):
+    """Standalone preflight (no run after) — used by the 'Run Pre-flight Only'
+    button so the user can dry-run the credential check without committing."""
+    if RUN_LOCK.locked():
+        await _safe_send(ui_ws, {
+            "type": "error",
+            "message": "Another diagnostics run is already in progress.",
+        })
+        return
+    async with RUN_LOCK:
+        await _safe_send(ui_ws, {"type": "run_state", "state": "started"})
+        try:
+            await _run_preflight_phase(ui_ws)
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
+            await _safe_send(ui_ws, {"type": "error", "message": str(exc)})
+        finally:
+            await _safe_send(ui_ws, {"type": "run_state", "state": "finished"})
+
+
+async def _run_preflight_phase(ui_ws: WebSocket):
+    """Load inventory, run preflight in parallel, stream rows to the UI.
+    Returns the list of PreflightResult on success, or None if inventory
+    loading failed (in which case an error message has already been sent)."""
+    config_path = ROOT_DIR / "config" / "config.yaml"
+    if not config_path.exists():
+        config_path = ROOT_DIR / "config.yaml"
+    loader      = ConfigLoader(str(config_path))
+    app_settings = loader.get_app_settings()
+    inventory_name = app_settings.inventory_file or "inventory.xlsx"
+    try:
+        clusters = loader.load_inventory(inventory_name)
+    except Exception as e:
+        await _safe_send(ui_ws, {
+            "type":    "error",
+            "message": f"Inventory load failed for '{inventory_name}': {e}",
+        })
+        return None
+    if not clusters:
+        await _safe_send(ui_ws, {
+            "type":    "error",
+            "message": f"No enabled clusters found in '{inventory_name}'.",
+        })
+        return None
+
+    started_at = datetime.now(timezone.utc).isoformat(timespec="seconds")
+    await _safe_send(ui_ws, {
+        "type":       "preflight_started",
+        "total":      len(clusters),
+        "started_at": started_at,
+    })
+
+    async def _emit(row: PreflightResult):
+        await _safe_send(ui_ws, {"type": "preflight_result", "row": row.to_dict()})
+
+    rows = await run_preflight(
+        clusters,
+        parallel_limit = app_settings.parallel_limit or 5,
+        on_result      = _emit,
+    )
+
+    all_ok = all(r.status == "OK" for r in rows)
+    await _safe_send(ui_ws, {
+        "type":   "preflight_done",
+        "all_ok": all_ok,
+        "rows":   [r.to_dict() for r in rows],
+    })
+
+    # P3.1 hook: persist rows to history DB once frontend/core/history_db.py lands.
+    # The PreflightResult dict shape is already DB-row friendly (flat scalar
+    # fields) so the call site will be:
+    #   from core.history_db import write_preflight
+    #   await write_preflight(run_id=..., rows=[r.to_dict() for r in rows])
+
+    return rows
 
 
 async def _run_all_clusters(ui_ws: WebSocket, enabled_checks=None):
