@@ -118,7 +118,7 @@ These items from the earlier plan are confirmed complete in beta5 and excluded f
 **Why high:** These are real defects that affect production stability. Renumbered from P2.3 in v1 because we want them addressed alongside Cancel.
 
 **Tasks:**
-- **Frontend lock-state query:** Add `/api/lock_status` to backend, queried by frontend before launching second backend on same bastion. Surface "Another run in progress (PID X, started Y)" instead of silent backend exit
+- **Frontend lock-state query:** Probe `/tmp/cloud_health/hc.lock` directly over the existing SSH session before SFTP push. Surface "Another run in progress (PID X, started Y by Z)" instead of silent backend exit. (Originally proposed as a `/api/lock_status` HTTP endpoint, but that path can't be reached until the backend is already launched — too late to detect a prior owner. SSH-read is the right primitive.)
 - **Host checks command logging:** Refactor `backend/checks/host_checks.py` so every `ssh.run()` call routes through `_r()` helper that calls `sec.append_log()` — same pattern as `ocp_checks.py` and `cvim_checks.py`
 - **Backend log readback on launch failure:** When `_wait_for_port` times out, read last 50 lines of `/tmp/cloud_health/backend.log` over SSH and surface to frontend instead of generic `TimeoutError`
 
