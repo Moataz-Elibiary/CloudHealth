@@ -385,6 +385,21 @@ async def _run_single_cluster(ui_ws, cluster, app_settings, output_dir, run_id, 
             remote_port=app_settings.backend_port, local_port=local_port,
         )
 
+        # 1.5 Lock-state pre-check — bail out before SFTP if a live owner
+        # already holds /tmp/cloud_health/hc.lock on the bastion. Surfaces a
+        # clear "another run in progress" error instead of a silent backend
+        # exit on launch.
+        existing_lock = await _probe_lock_state(ssh)
+        if existing_lock:
+            owner_pid  = existing_lock.get("pid", "?")
+            owner_user = existing_lock.get("user") or "?"
+            owner_ts   = existing_lock.get("timestamp") or "?"
+            raise RuntimeError(
+                f"Another run is in progress on the bastion "
+                f"(PID {owner_pid}, started {owner_ts} by {owner_user}). "
+                f"Wait for it to finish, or remove /tmp/cloud_health/hc.lock "
+                f"on the bastion if it is stale.")
+
         # 2. Push backend (version-aware)
         await _safe_send(ui_ws, {
             "type": "cluster_status", "cluster": name, "status": "Pushing Backend"})
@@ -420,7 +435,10 @@ async def _run_single_cluster(ui_ws, cluster, app_settings, output_dir, run_id, 
         # 4. Wait for backend to become ready
         try:
             await _wait_for_port(local_port)
-        except TimeoutError:
+        except TimeoutError as exc:
+            # Read the backend log tail BEFORE killing the process — once we
+            # pkill, anything useful in stderr may be gone.
+            log_tail = await _read_backend_log_tail(ssh, lines=50)
             # Backend may have started and acquired the lock but is not
             # responding. Kill it and delete the lock while SSH is still open
             # so the next run is not blocked.
@@ -429,6 +447,9 @@ async def _run_single_cluster(ui_ws, cluster, app_settings, output_dir, run_id, 
                 "pkill -f '/tmp/cloud_health/main.py' 2>/dev/null; "
                 "rm -f /tmp/cloud_health/hc.lock"
             )
+            if log_tail:
+                raise TimeoutError(
+                    f"{exc}\n--- backend.log (last 50 lines) ---\n{log_tail}")
             raise
 
         # 5. Proxy WS — credential-sanitised payload
@@ -485,6 +506,52 @@ async def _wait_for_port(port: int, timeout_s: float = 20.0):
     raise TimeoutError(
         f"Backend on port {port} did not become ready within {timeout_s:.0f}s. "
         f"Check /tmp/cloud_health/backend.log on the bastion.")
+
+
+async def _probe_lock_state(ssh) -> Optional[dict]:
+    """Read /tmp/cloud_health/hc.lock over the existing SSH session.
+
+    Returns the lock payload dict if a live owner holds the lock, else None.
+    A stale lock (owner PID no longer alive) is treated as no lock — the
+    backend will clean it up itself on next launch.
+    """
+    try:
+        _, stdout, _ = await asyncio.to_thread(
+            ssh.exec_command, "cat /tmp/cloud_health/hc.lock 2>/dev/null")
+        raw = (await asyncio.to_thread(stdout.read)).decode(errors="replace").strip()
+        if not raw:
+            return None
+        try:
+            payload = json.loads(raw)
+        except Exception:
+            return None
+        pid = payload.get("pid")
+        if isinstance(pid, str) and pid.isdigit():
+            pid = int(pid)
+        if not isinstance(pid, int):
+            return None
+        _, stdout2, _ = await asyncio.to_thread(
+            ssh.exec_command, f"kill -0 {pid} 2>/dev/null && echo alive || echo dead")
+        status = (await asyncio.to_thread(stdout2.read)).decode(errors="replace").strip()
+        if status != "alive":
+            return None
+        return payload
+    except Exception:
+        return None
+
+
+async def _read_backend_log_tail(ssh, lines: int = 50) -> str:
+    """Read the last N lines of /tmp/cloud_health/backend.log over SSH.
+
+    Returns an empty string if the log is missing or unreadable.
+    """
+    try:
+        _, stdout, _ = await asyncio.to_thread(
+            ssh.exec_command,
+            f"tail -n {int(lines)} /tmp/cloud_health/backend.log 2>/dev/null")
+        return (await asyncio.to_thread(stdout.read)).decode(errors="replace").rstrip()
+    except Exception:
+        return ""
 
 
 # ── Entry point ───────────────────────────────────────────────────────────────

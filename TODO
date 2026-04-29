@@ -123,12 +123,12 @@ These items from the earlier plan are confirmed complete in beta5 and excluded f
 
 ### 🟠 P2.2 — Bug carry-overs from earlier review
 **Why high:** These are real defects that affect production stability. Renumbered from P2.3 in v1 because we want them addressed alongside Cancel.
-**Status: PARTIAL** — host logging done; lock probe and log readback pending
+**Status: ✅ DONE**
 
 **Tasks:**
-- ☐ **Frontend lock-state query:** Probe `/tmp/cloud_health/hc.lock` directly over the existing SSH session before SFTP push. Surface "Another run in progress (PID X, started Y by Z)" instead of silent backend exit. (Originally proposed as a `/api/lock_status` HTTP endpoint, but that path can't be reached until the backend is already launched — too late to detect a prior owner. SSH-read is the right primitive.)
+- ✅ **Frontend lock-state query:** `_probe_lock_state()` in `frontend/app.py` reads `/tmp/cloud_health/hc.lock` over SSH after connect, verifies PID is alive, and raises a clear "Another run in progress (PID X, started Y by Z)" error before the SFTP push. Stale locks (dead PID) are ignored — the backend cleans them up itself.
 - ✅ **Host checks command logging:** `backend/checks/host_checks.py` already has `_r()` helper at line 131 routing all `ssh.run()` calls through `sec.append_log()` — matches `ocp_checks.py` and `cvim_checks.py` pattern
-- ☐ **Backend log readback on launch failure:** When `_wait_for_port` times out (`frontend/app.py:475-487`), read last 50 lines of `/tmp/cloud_health/backend.log` over SSH and surface to frontend instead of generic `TimeoutError`
+- ✅ **Backend log readback on launch failure:** `_read_backend_log_tail()` in `frontend/app.py` reads the last 50 lines of `/tmp/cloud_health/backend.log` over SSH on `_wait_for_port` timeout (before pkill, so stderr isn't lost) and appends them to the surfaced `TimeoutError`
 
 **Files affected:** `backend/main.py`, `backend/checks/host_checks.py`, `frontend/app.py`
 
