@@ -33,6 +33,7 @@ These items from the earlier plan are confirmed complete in beta5 and excluded f
 - `_push()` backpressure fix (no more dropped check messages)
 - Lock cleanup on `_wait_for_port` timeout
 - Bootstrapper error visible in browser via `/status` polling
+- Host checks command logging: `backend/checks/host_checks.py` already routes all `ssh.run()` calls through `_r()` helper → `sec.append_log()` (matches ocp/cvim pattern — P2.2 item ✅)
 
 ---
 
@@ -40,19 +41,22 @@ These items from the earlier plan are confirmed complete in beta5 and excluded f
 
 ### 🔴 P1.1 — Migrate ALL user data to `~/Documents/cloud_health/`
 **Why first:** Beta5 is half-migrated. Frontend logs go to `~/Documents/cloud_health/log/` but credentials, program directory, version file, and salt all still live in `~/.cloud_health/`. Per design decision 1, the legacy path is being eliminated entirely.
+**Status: PARTIAL** — frontend log path correct; bootstrapper, credentials, and config still point to `~/.cloud_health/`
 
 **Tasks:**
 - Define a single `USER_DATA_DIR = Path.home() / "Documents" / "cloud_health"` constant in a shared module (e.g. `bootstrapper/paths.py` or read from a tiny config in both bootstrapper and frontend)
-- Move credential cache: `~/.cloud_health/.creds_cache` → `~/Documents/cloud_health/credentials.cache`
-- Move salt file: `~/.cloud_health/.salt` → `~/Documents/cloud_health/.salt`
-- Move version file: `~/.cloud_health/version.txt` → `~/Documents/cloud_health/version.txt`
-- Move program directory: `~/.cloud_health/program/` → `~/Documents/cloud_health/program/`
-- Move `.meta` file: `~/.cloud_health/.meta` → `~/Documents/cloud_health/.meta`
-- Update `frontend/core/credentials.py`: `CACHE_DIR = Path.home() / "Documents" / "cloud_health"`
-- Update `bootstrapper/bootstrapper.py`: all `CACHE_DIR`-derived paths
+- ✅ Frontend logging path: `frontend/app.py` already uses `~/Documents/cloud_health/log/`
+- ☐ Move credential cache: `~/.cloud_health/.creds_cache` → `~/Documents/cloud_health/credentials.cache` (`frontend/core/credentials.py:24` still hardcodes old path)
+- ☐ Move salt file: `~/.cloud_health/.salt` → `~/Documents/cloud_health/.salt`
+- ☐ Move version file: `~/.cloud_health/version.txt` → `~/Documents/cloud_health/version.txt`
+- ☐ Move program directory: `~/.cloud_health/program/` → `~/Documents/cloud_health/program/`
+- ☐ Move `.meta` file: `~/.cloud_health/.meta` → `~/Documents/cloud_health/.meta`
+- ☐ Update `frontend/core/credentials.py:24`: `CACHE_DIR` still points to `~/.cloud_health/`
+- ☐ Update `bootstrapper/bootstrapper.py:14-18`: `CACHE_DIR`, `CACHE_FILE`, `SALT_FILE`, `VERSION_FILE`, `PROGRAM_DIR` all derived from old path
+- ☐ Update `frontend/core/config.py:48`: config lookup still checks `~/.cloud_health/config.yaml`
 - **No fallback to `~/.cloud_health/`** — per design decision 1, hard cutover
-- Add a single startup check that creates `~/Documents/cloud_health/` and required subdirs (`log/`, `db/`, `program/`, `outputs/`) if missing
-- Update README to document the new location and note that existing beta5 users must re-enter credentials once
+- ☐ Add a single startup check that creates `~/Documents/cloud_health/` and required subdirs (`log/`, `db/`, `program/`, `outputs/`) if missing
+- ☐ Update README to document the new location and note that existing beta5 users must re-enter credentials once
 
 **Files affected:** `bootstrapper/bootstrapper.py`, `frontend/core/credentials.py`, `frontend/core/config.py`, `frontend/app.py`, `README.md`
 
@@ -60,6 +64,7 @@ These items from the earlier plan are confirmed complete in beta5 and excluded f
 
 ### 🔴 P1.2 — No-install Windows bootstrapper executable
 **Why first:** Currently the bootstrapper assumes Python is installed on the user's Windows machine. Most ops users don't have admin rights and can't install Python. This is the #1 first-time-user failure mode.
+**Status: NOT STARTED** — no build spec or scripts exist yet
 
 **Tasks:**
 - Create PyInstaller build spec: `--onefile --noconsole --name CloudHealth-Bootstrap.exe`
@@ -77,6 +82,7 @@ These items from the earlier plan are confirmed complete in beta5 and excluded f
 
 ### 🔴 P1.3 — Pre-flight credential validation before SFTP push
 **Why first:** Carry-over from earlier review (still PENDING per beta5 issues file). Currently if SSH auth fails on a cluster bastion, the user only sees a generic exception. Must validate connectivity + auth + Python availability across all selected clusters before starting the actual run.
+**Status: NOT STARTED** — no `preflight.py`, no UI table, no WebSocket action
 
 **Tasks:**
 - New module `frontend/core/preflight.py`
@@ -98,6 +104,7 @@ These items from the earlier plan are confirmed complete in beta5 and excluded f
 
 ### 🟠 P2.1 — Cancel / Stop button (with partial results saved)
 **Why high:** Once a run starts, the user has no way to abort cleanly. Closing the browser orphans backends until the heartbeat watchdog kicks in. Blocks confident production use.
+**Status: NOT STARTED** — no Stop button, no `cancel` WebSocket action, no cancel handling in backend
 
 **Tasks:**
 - Add "Stop" button to `frontend/static/index.html`, visible only when run is active
@@ -116,11 +123,12 @@ These items from the earlier plan are confirmed complete in beta5 and excluded f
 
 ### 🟠 P2.2 — Bug carry-overs from earlier review
 **Why high:** These are real defects that affect production stability. Renumbered from P2.3 in v1 because we want them addressed alongside Cancel.
+**Status: PARTIAL** — host logging done; lock probe and log readback pending
 
 **Tasks:**
-- **Frontend lock-state query:** Probe `/tmp/cloud_health/hc.lock` directly over the existing SSH session before SFTP push. Surface "Another run in progress (PID X, started Y by Z)" instead of silent backend exit. (Originally proposed as a `/api/lock_status` HTTP endpoint, but that path can't be reached until the backend is already launched — too late to detect a prior owner. SSH-read is the right primitive.)
-- **Host checks command logging:** Refactor `backend/checks/host_checks.py` so every `ssh.run()` call routes through `_r()` helper that calls `sec.append_log()` — same pattern as `ocp_checks.py` and `cvim_checks.py`
-- **Backend log readback on launch failure:** When `_wait_for_port` times out, read last 50 lines of `/tmp/cloud_health/backend.log` over SSH and surface to frontend instead of generic `TimeoutError`
+- ☐ **Frontend lock-state query:** Probe `/tmp/cloud_health/hc.lock` directly over the existing SSH session before SFTP push. Surface "Another run in progress (PID X, started Y by Z)" instead of silent backend exit. (Originally proposed as a `/api/lock_status` HTTP endpoint, but that path can't be reached until the backend is already launched — too late to detect a prior owner. SSH-read is the right primitive.)
+- ✅ **Host checks command logging:** `backend/checks/host_checks.py` already has `_r()` helper at line 131 routing all `ssh.run()` calls through `sec.append_log()` — matches `ocp_checks.py` and `cvim_checks.py` pattern
+- ☐ **Backend log readback on launch failure:** When `_wait_for_port` times out (`frontend/app.py:475-487`), read last 50 lines of `/tmp/cloud_health/backend.log` over SSH and surface to frontend instead of generic `TimeoutError`
 
 **Files affected:** `backend/main.py`, `backend/checks/host_checks.py`, `frontend/app.py`
 
@@ -130,6 +138,7 @@ These items from the earlier plan are confirmed complete in beta5 and excluded f
 
 ### 🟠 P3.1 — SQLite run history database
 **Why high:** Single most valuable feature in the entire backlog. Unlocks diff reporting, "view last run", trend analysis, scheduled runs, and any future alerting. Cost is small (~200 lines of code), value is huge.
+**Status: NOT STARTED** — no `history_db.py`, no schema, no `/api/history` endpoints, `history_max_runs` missing from config
 
 **Tasks:**
 - New module `frontend/core/history_db.py`
@@ -151,6 +160,7 @@ These items from the earlier plan are confirmed complete in beta5 and excluded f
 
 ### 🟠 P3.2 — History tab
 **Why high:** Direct user request from the original 14 items. Pairs naturally with P3.1.
+**Status: NOT STARTED** — depends on P3.1; no tab, no historical run view
 
 **Tasks:**
 - Add "History" tab to sidebar showing last 30 runs (timestamp, user, cluster count, P/F/W counts, status icon including CANCELLED)
@@ -164,6 +174,7 @@ These items from the earlier plan are confirmed complete in beta5 and excluded f
 
 ### 🟠 P3.3 — Diff-from-last-run highlighting in report
 **Why high:** Direct user request. The "killer demo" feature — turns one-shot diagnostic into operational monitoring.
+**Status: NOT STARTED** — depends on P3.1; no diff logic in reporter
 
 **Tasks:**
 - On report generation, query DB for previous successful run's results for each cluster (skip cancelled runs as comparison baseline)
@@ -176,8 +187,9 @@ These items from the earlier plan are confirmed complete in beta5 and excluded f
 
 ---
 
-### 🟠 P3.4 — Per-cluster / per-node selection
+### 🟠 P3.4 — Per-cluster selection
 **Why high:** Renumbered from P2.2 in v1, moved here because the "rerun failed clusters" quick action depends on history DB (P3.1) being in place first.
+**Status: NOT STARTED** — no cluster checkboxes, no `/api/inventory` endpoint, no `selected_clusters` in WebSocket payload
 
 **Tasks:**
 - Add cluster list with checkboxes to frontend sidebar (load from new `/api/inventory` endpoint)
@@ -193,6 +205,7 @@ These items from the earlier plan are confirmed complete in beta5 and excluded f
 
 ### 🟡 P4.1 — Copy summary report button
 **Why medium:** Direct user request. Quality-of-life feature for sharing results in email/Slack/management updates.
+**Status: NOT STARTED** — no copy button, no plain-text summary generation
 
 **Tasks:**
 - Add "Copy Summary" button to report toolbar
@@ -210,6 +223,7 @@ These items from the earlier plan are confirmed complete in beta5 and excluded f
 
 ### 🟡 P4.2 — Dry-run (view last results without running)
 **Why medium:** Lets operators review the most recent health status without triggering a new check run — useful for quick status reviews or during maintenance windows.
+**Status: NOT STARTED** — depends on P3.1; no Dry Run button
 
 **Tasks:**
 - New "Dry Run" button in the UI (distinct from "Run Health Check")
@@ -226,6 +240,7 @@ These items from the earlier plan are confirmed complete in beta5 and excluded f
 
 ### 🟡 P5.1 — CLI headless mode
 **Why medium:** Enables CI/CD integration and scripting. Less urgent than UI features but unlocks new use cases.
+**Status: NOT STARTED** — `main.py` has minimal arg parsing only; no headless run, no JSON output, no exit code semantics
 
 **Tasks:**
 - New entry point in existing `main.py`: `cloudhealth run --clusters prod-east --checks etcd,nodes --output json --no-browser`
@@ -260,7 +275,8 @@ These items from the earlier plan are confirmed complete in beta5 and excluded f
 ## Priority 6 — Enhance User-Interface
 
 ### 🟡 P6.1 — Update the frontend UI
-**Why medium:** 
+**Why medium:**
+**Status: NOT STARTED**
 
 **Tasks:**
 - Organize the final UI report and arrange it per cluster.
