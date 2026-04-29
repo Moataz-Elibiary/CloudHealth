@@ -71,6 +71,9 @@ body{font-family:'Inter',system-ui,sans-serif;background:linear-gradient(135deg,
 .run-btn:disabled{opacity:.4;cursor:not-allowed;transform:none}
 .run-btn.secondary{background:transparent;border:1px solid var(--primary);color:var(--text);font-size:.85rem;padding:.65rem;font-weight:600}
 .run-btn.secondary:hover:not(:disabled){background:rgba(99,102,241,.1);transform:none}
+.run-btn.stop{background:linear-gradient(135deg,#ef4444,#b91c1c);margin-top:.4rem}
+.run-btn.stop:hover:not(:disabled){opacity:.9}
+.run-btn.stop.cancelling{background:#7f1d1d;cursor:wait}
 
 /* preflight controls + table */
 .preflight-opts{display:flex;flex-direction:column;gap:.35rem;margin-top:.75rem;padding:.65rem .8rem;background:rgba(15,23,42,.4);border:1px solid var(--glass-b);border-radius:6px}
@@ -143,6 +146,7 @@ body{font-family:'Inter',system-ui,sans-serif;background:linear-gradient(135deg,
 .pill-pass,.pill-PASS{background:rgba(34,197,94,.18);color:var(--pass)}
 .pill-fail,.pill-FAIL,.pill-error,.pill-ERROR{background:rgba(239,68,68,.18);color:var(--fail)}
 .pill-warn,.pill-WARN{background:rgba(245,158,11,.18);color:var(--warn);color:#111 !important;background:#f59e0b !important}
+.pill-cancelled,.pill-CANCELLED,.pill-cancelling,.pill-CANCELLING,.pill-busy,.pill-BUSY{background:rgba(127,29,29,.5);color:#fca5a5}
 
 /* headline zone */
 .headline{margin:.75rem 1.25rem;padding:.6rem .9rem;background:rgba(15,23,42,.6);border-radius:6px;border-left:3px solid var(--primary);font-family:var(--mono);font-size:.78rem;color:#cbd5e1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
@@ -219,6 +223,7 @@ body{font-family:'Inter',system-ui,sans-serif;background:linear-gradient(135deg,
       </div>
       <button class="run-btn secondary" id="preflightBtn">🛫 Run Pre-flight Only</button>
       <button class="run-btn" id="runBtn">🚀 Run Health Check</button>
+      <button class="run-btn stop" id="stopBtn" style="display:none">⏹ Stop</button>
     </div>
 
     <!-- Tab: Config -->
@@ -310,7 +315,7 @@ body{font-family:'Inter',system-ui,sans-serif;background:linear-gradient(135deg,
 const ws = new WebSocket(`ws://${location.host}/ws/ui`);
 
 // ── State ──────────────────────────────────────────────────────────────────
-const state = { clusters:{}, totals:{pass:0,warn:0,fail:0,sections:0,clusters:0}, running:false };
+const state = { clusters:{}, totals:{pass:0,warn:0,fail:0,sections:0,clusters:0}, running:false, cancelling:false };
 let currentFilter = 'all';
 let configData    = {};
 let saveTimer     = null;
@@ -506,6 +511,9 @@ ws.onmessage = ({data}) => {
     case 'preflight_result':  onPreflightResult(m.row); break;
     case 'preflight_done':    onPreflightDone(m);       break;
     case 'preflight_blocked': onPreflightBlocked(m);    break;
+    case 'cancel_ack':        onCancelAck(m);           break;
+    case 'cancelling':        onCancellingCluster(m);   break;
+    case 'cancelled':         onClusterCancelled(m);    break;
   }
 };
 
@@ -514,16 +522,40 @@ ws.onerror = () => showError('WebSocket error. Is the server running?');
 function handleRunState(m) {
   if(m.state==='started') {
     state.running=true;
+    state.cancelling=false;
     resetDashboard();
     $('runBtn').disabled=true;
     $('runBtn').textContent='⚙ Running…';
     $('preflightBtn').disabled=true;
+    const sb=$('stopBtn');
+    sb.style.display='block';
+    sb.disabled=false;
+    sb.textContent='⏹ Stop';
+    sb.classList.remove('cancelling');
   }
-  if(m.state==='finished') {
+  if(m.state==='cancelling') {
+    state.cancelling=true;
+    const sb=$('stopBtn');
+    sb.disabled=true;
+    sb.textContent='Cancelling…';
+    sb.classList.add('cancelling');
+  }
+  if(m.state==='finished' || m.state==='cancelled') {
     state.running=false;
+    state.cancelling=false;
     $('runBtn').disabled=false;
     $('runBtn').textContent='🚀 Run Health Check';
     $('preflightBtn').disabled=false;
+    const sb=$('stopBtn');
+    sb.style.display='none';
+    sb.disabled=false;
+    sb.textContent='⏹ Stop';
+    sb.classList.remove('cancelling');
+    if(m.state==='cancelled') {
+      const b=$('errBanner');
+      b.textContent='Run cancelled — partial results saved.';
+      b.classList.add('show');
+    }
     applyFilter();
   }
 }
@@ -782,6 +814,41 @@ $('preflightBtn').onclick = () => {
   ws.send(JSON.stringify({action:'preflight'}));
   $('preflightBtn').disabled = true;
 };
+
+$('stopBtn').onclick = () => {
+  if(!state.running || state.cancelling) return;
+  if(ws.readyState !== WebSocket.OPEN) return;
+  if(!confirm('Stop the current diagnostics run? Partial results will be saved.')) return;
+  state.cancelling = true;
+  const sb = $('stopBtn');
+  sb.disabled = true;
+  sb.textContent = 'Cancelling…';
+  sb.classList.add('cancelling');
+  ws.send(JSON.stringify({action:'cancel'}));
+};
+
+function onCancelAck(m) {
+  if(!m.running) {
+    state.cancelling = false;
+    const sb = $('stopBtn');
+    sb.style.display = 'none';
+    sb.disabled = false;
+    sb.textContent = '⏹ Stop';
+    sb.classList.remove('cancelling');
+  }
+}
+
+function onCancellingCluster(m) {
+  if(m.cluster) updatePill(m.cluster, 'CANCELLING');
+}
+
+function onClusterCancelled(m) {
+  if(m.cluster) updatePill(m.cluster, 'CANCELLED');
+  if(m.summary) {
+    state.totals.clusters++;
+    updateScoreboard();
+  }
+}
 
 // ── Boot ───────────────────────────────────────────────────────────────────
 init();

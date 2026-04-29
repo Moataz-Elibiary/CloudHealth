@@ -49,6 +49,14 @@ RUN_LOCK   = asyncio.Lock()
 LAST_RESULTS: List[dict] = []
 LATEST_REPORT_PATH: Optional[str] = None
 
+# Tracks WS handles + tunnels that are currently in flight, keyed by
+# cluster name. The cancel path uses this to send a 'cancel' WS action
+# to each bastion backend (so the partial-results path on the bastion
+# kicks in) and to close every tunnel cleanly.
+ACTIVE_BACKEND_WS: dict = {}
+ACTIVE_TUNNELS:    dict = {}
+CANCEL_REQUESTED:  bool = False
+
 VERSION_FILE = ROOT_DIR / "version.txt"
 
 # ── Check categories (served to sidebar) ─────────────────────────────────────
@@ -239,6 +247,20 @@ async def ui_websocket(websocket: WebSocket):
                     continue
                 active_run = asyncio.create_task(
                     _preflight_only(websocket))
+            elif action == "cancel":
+                if active_run is None or active_run.done():
+                    await _safe_send(websocket, {
+                        "type":    "cancel_ack",
+                        "running": False,
+                    })
+                    continue
+                await _safe_send(websocket, {
+                    "type":    "cancel_ack",
+                    "running": True,
+                })
+                await _safe_send(websocket, {"type": "run_state",
+                                              "state": "cancelling"})
+                await _request_cancel(websocket)
     except WebSocketDisconnect:
         if active_run and not active_run.done():
             active_run.cancel()
@@ -252,9 +274,35 @@ async def _safe_send(ws: WebSocket, payload: dict) -> bool:
         return False
 
 
+async def _request_cancel(ui_ws: WebSocket):
+    """Broadcast a cancel to every active bastion backend, then close every
+    tunnel. The proxy_cluster() task will see its WS close and unwind, the
+    bastion backend will hit its asyncio.CancelledError handler and write
+    partial results with status='CANCELLED'."""
+    global CANCEL_REQUESTED
+    CANCEL_REQUESTED = True
+    log.info("Cancel requested — notifying %d backend(s) and closing %d tunnel(s)",
+             len(ACTIVE_BACKEND_WS), len(ACTIVE_TUNNELS))
+    # Tell each bastion backend to cancel — best effort, ignore failures.
+    for cluster_name, backend_ws in list(ACTIVE_BACKEND_WS.items()):
+        try:
+            await backend_ws.send(json.dumps({"action": "cancel"}))
+        except Exception as e:
+            log.warning("Cancel send to '%s' failed: %s", cluster_name, e)
+    # Close every tunnel — frees local ports and triggers proxy unwind.
+    for cluster_name, handle in list(ACTIVE_TUNNELS.items()):
+        try:
+            await tunnel_mgr.close(handle)
+        except Exception as e:
+            log.warning("Tunnel close for '%s' failed: %s", cluster_name, e)
+    ACTIVE_BACKEND_WS.clear()
+    ACTIVE_TUNNELS.clear()
+
+
 async def _run_guarded(ui_ws: WebSocket, enabled_checks,
                         skip_preflight: bool = False,
                         ignore_failures: bool = False):
+    global CANCEL_REQUESTED
     if RUN_LOCK.locked():
         await _safe_send(ui_ws, {
             "type": "error",
@@ -262,6 +310,7 @@ async def _run_guarded(ui_ws: WebSocket, enabled_checks,
         })
         return
     async with RUN_LOCK:
+        CANCEL_REQUESTED = False
         await _safe_send(ui_ws, {"type": "run_state", "state": "started"})
         try:
             if not skip_preflight:
@@ -285,7 +334,8 @@ async def _run_guarded(ui_ws: WebSocket, enabled_checks,
         except Exception as exc:
             await _safe_send(ui_ws, {"type": "error", "message": str(exc)})
         finally:
-            await _safe_send(ui_ws, {"type": "run_state", "state": "finished"})
+            final_state = "cancelled" if CANCEL_REQUESTED else "finished"
+            await _safe_send(ui_ws, {"type": "run_state", "state": final_state})
 
 
 async def _preflight_only(ui_ws: WebSocket):
@@ -367,9 +417,12 @@ async def _run_preflight_phase(ui_ws: WebSocket):
 
 
 async def _run_all_clusters(ui_ws: WebSocket, enabled_checks=None):
-    global LAST_RESULTS, LATEST_REPORT_PATH
+    global LAST_RESULTS, LATEST_REPORT_PATH, CANCEL_REQUESTED
     LAST_RESULTS        = []
     LATEST_REPORT_PATH  = None
+    CANCEL_REQUESTED    = False
+    ACTIVE_BACKEND_WS.clear()
+    ACTIVE_TUNNELS.clear()
 
     # Generate correlation IDs for this run — propagated to the bastion
     # backend so its logs can be correlated, but never persisted on the
@@ -428,11 +481,19 @@ async def _run_all_clusters(ui_ws: WebSocket, enabled_checks=None):
     sem   = asyncio.Semaphore(app_settings.parallel_limit or 5)
     tasks = [_run_with_sem(sem, ui_ws, c, app_settings, output_dir, run_id, user_id)
              for c in clusters]
-    results = [r for r in await asyncio.gather(*tasks) if r]
+    raw_results = await asyncio.gather(*tasks, return_exceptions=True)
+    results = []
+    for r in raw_results:
+        if isinstance(r, Exception):
+            continue
+        if r:
+            results.append(r)
     LAST_RESULTS = results
 
     elapsed = (datetime.now() - run_start).total_seconds()
-    log.info("All clusters finished in %.1fs — %d result(s) collected", elapsed, len(results))
+    cancelled = CANCEL_REQUESTED
+    log.info("All clusters %s in %.1fs — %d result(s) collected",
+             "cancelled" if cancelled else "finished", elapsed, len(results))
 
     if results:
         reporter     = HTMLReporter([ClusterResult.from_dict(r) for r in results],
@@ -442,10 +503,31 @@ async def _run_all_clusters(ui_ws: WebSocket, enabled_checks=None):
         LATEST_REPORT_PATH = str(report_path.resolve())
         log.info("Report generated: %s", LATEST_REPORT_PATH)
         await _safe_send(ui_ws, {
-            "type":   "reports_ready",
-            "path":   LATEST_REPORT_PATH,
-            "count":  len(results),
+            "type":      "reports_ready",
+            "path":      LATEST_REPORT_PATH,
+            "count":     len(results),
+            "cancelled": cancelled,
         })
+
+    if cancelled:
+        # Persist a CANCELLED marker alongside the partial results so the
+        # history DB writer (P3.1) can ingest the same payload later.
+        try:
+            user_data_dir = Path.home() / "Documents" / "cloud_health"
+            user_data_dir.mkdir(parents=True, exist_ok=True)
+            (user_data_dir / "last_run_cancelled.json").write_text(
+                json.dumps({
+                    "run_id":  run_id,
+                    "user":    user_id,
+                    "started": run_start.isoformat(),
+                    "ended":   datetime.now().isoformat(),
+                    "status":  "CANCELLED",
+                    "results": results,
+                }, default=str),
+                encoding="utf-8",
+            )
+        except Exception as e:
+            log.warning("Cancelled-run marker write failed: %s", e)
 
 
 async def _run_with_sem(sem, ui_ws, cluster, app_settings, output_dir, run_id, user_id):
@@ -461,6 +543,8 @@ async def _run_single_cluster(ui_ws, cluster, app_settings, output_dir, run_id, 
 
     log.info("Cluster '%s' — starting", name)
     try:
+        if CANCEL_REQUESTED:
+            return None
         await _safe_send(ui_ws, {
             "type": "cluster_status", "cluster": name, "status": "Connecting"})
 
@@ -471,6 +555,24 @@ async def _run_single_cluster(ui_ws, cluster, app_settings, output_dir, run_id, 
             cluster.ssh_pass, key_path=key_path,
             remote_port=app_settings.backend_port, local_port=local_port,
         )
+        ACTIVE_TUNNELS[name] = ssh
+
+        # 1b. Lock-state probe — surface "already running" before we waste time
+        # SFTP'ing or trying to bind a second backend.
+        lock = await _query_bastion_lock(ssh)
+        if lock and lock.get("alive"):
+            pid = lock.get("pid", "?")
+            ts  = lock.get("timestamp", "")
+            usr = lock.get("user", "")
+            msg = (f"Another run is already in progress on {cluster.installer_ip} "
+                   f"(PID {pid}, started {ts} by {usr}). "
+                   f"Wait for it to finish or use Stop on the active session.")
+            log.warning("Cluster '%s' — %s", name, msg)
+            await _safe_send(ui_ws, {
+                "type": "cluster_status", "cluster": name, "status": "BUSY"})
+            await _safe_send(ui_ws, {
+                "type": "error", "cluster": name, "message": msg})
+            return None
 
         # 2. Push backend (version-aware)
         await _safe_send(ui_ws, {
@@ -507,16 +609,21 @@ async def _run_single_cluster(ui_ws, cluster, app_settings, output_dir, run_id, 
         # 4. Wait for backend to become ready
         try:
             await _wait_for_port(local_port)
-        except TimeoutError:
+        except TimeoutError as exc:
             # Backend may have started and acquired the lock but is not
-            # responding. Kill it and delete the lock while SSH is still open
-            # so the next run is not blocked.
+            # responding. Read the most recent system log lines off the
+            # bastion (NOT the per-check command log) so the operator gets
+            # a meaningful failure message instead of a generic timeout,
+            # then kill the stuck process and delete the lock while SSH is
+            # still open so the next run is not blocked.
+            tail = await _read_backend_system_log(ssh, lines=50)
             await asyncio.to_thread(
                 ssh.exec_command,
                 "pkill -f '/tmp/cloud_health/main.py' 2>/dev/null; "
                 "rm -f /tmp/cloud_health/hc.lock"
             )
-            raise
+            detail = tail or "(no log output captured)"
+            raise TimeoutError(f"{exc}\n--- bastion system log (last 50) ---\n{detail}")
 
         # 5. Proxy WS — credential-sanitised payload
         await _safe_send(ui_ws, {
@@ -529,14 +636,24 @@ async def _run_single_cluster(ui_ws, cluster, app_settings, output_dir, run_id, 
             "user_id": user_id,
         }
 
+        def _on_backend_ws(backend_ws):
+            ACTIVE_BACKEND_WS[name] = backend_ws
+
         summary = await proxy.proxy_cluster(
-            ui_ws, local_port, name, config_payload)
+            ui_ws, local_port, name, config_payload,
+            on_backend_ws=_on_backend_ws)
 
         if summary:
             elapsed = (datetime.now() - t_start).total_seconds()
             log.info("Cluster '%s' — completed in %.1fs", name, elapsed)
             return summary
 
+    except asyncio.CancelledError:
+        elapsed = (datetime.now() - t_start).total_seconds()
+        log.info("Cluster '%s' — cancelled after %.1fs", name, elapsed)
+        await _safe_send(ui_ws, {
+            "type": "cluster_status", "cluster": name, "status": "CANCELLED"})
+        raise
     except Exception as e:
         elapsed = (datetime.now() - t_start).total_seconds()
         log.error("Cluster '%s' — failed after %.1fs: %s", name, elapsed, e)
@@ -545,8 +662,13 @@ async def _run_single_cluster(ui_ws, cluster, app_settings, output_dir, run_id, 
         await _safe_send(ui_ws, {
             "type": "error", "cluster": name, "message": str(e)})
     finally:
+        ACTIVE_TUNNELS.pop(name, None)
+        ACTIVE_BACKEND_WS.pop(name, None)
         if ssh is not None:
-            await tunnel_mgr.close(ssh)
+            try:
+                await tunnel_mgr.close(ssh)
+            except Exception:
+                pass
     return None
 
 
@@ -557,6 +679,47 @@ def _resolve_key(key_path: Optional[str]) -> Optional[str]:
     if not p.is_absolute():
         p = ROOT_DIR / p
     return str(p.resolve())
+
+
+async def _query_bastion_lock(ssh) -> Optional[dict]:
+    """Read /tmp/cloud_health/hc.lock on the bastion via SSH (no TCP yet).
+    Returns a dict {pid, timestamp, user, alive} when another backend is
+    running, or None when the bastion is free / lock is stale.
+    Used before SFTP push so the user sees a clear 'already running'
+    message instead of a silent backend exit."""
+    cmd = (
+        "if [ -f /tmp/cloud_health/hc.lock ]; then "
+        "  cat /tmp/cloud_health/hc.lock; "
+        "  pid=$(python3 -c "
+        "  \"import json,sys; "
+        "    p=json.load(open('/tmp/cloud_health/hc.lock')); "
+        "    print(p['pid'] if isinstance(p,dict) else p)\" "
+        "  2>/dev/null); "
+        "  if [ -n \"$pid\" ] && kill -0 $pid 2>/dev/null; "
+        "  then echo __ALIVE__; else echo __STALE__; fi; "
+        "fi"
+    )
+    try:
+        _, stdout, _ = await asyncio.to_thread(ssh.exec_command, cmd)
+        out = (await asyncio.to_thread(stdout.read)).decode("utf-8", errors="replace").strip()
+    except Exception:
+        return None
+    if not out:
+        return None
+    alive = "__ALIVE__" in out
+    if not alive:
+        return None  # stale or absent — caller may proceed
+    body = out.replace("__ALIVE__", "").replace("__STALE__", "").strip()
+    payload: dict = {"alive": True}
+    try:
+        parsed = json.loads(body)
+        if isinstance(parsed, dict):
+            payload.update(parsed)
+        elif isinstance(parsed, int):
+            payload["pid"] = parsed
+    except Exception:
+        pass
+    return payload
 
 
 async def _wait_for_port(port: int, timeout_s: float = 20.0):
@@ -570,8 +733,28 @@ async def _wait_for_port(port: int, timeout_s: float = 20.0):
         except OSError:
             await asyncio.sleep(0.5)
     raise TimeoutError(
-        f"Backend on port {port} did not become ready within {timeout_s:.0f}s. "
-        f"Check /tmp/cloud_health/backend.log on the bastion.")
+        f"Backend on port {port} did not become ready within {timeout_s:.0f}s.")
+
+
+async def _read_backend_system_log(ssh, lines: int = 50) -> str:
+    """Tail the most recent backend system log on the bastion.
+    Reads from /tmp/cloud_health/log/system_*.log (the file the backend's
+    Python logging writes to). Falls back to /tmp/cloud_health/backend.log
+    which captures stdout/stderr from the launch wrapper before logging is
+    initialised. Command logs are intentionally NOT included — they are
+    per-check stdout dumps that don't carry startup failure context."""
+    cmd = (
+        f"(ls -t /tmp/cloud_health/log/system_*.log 2>/dev/null | head -1 "
+        f"| xargs -r tail -n {lines}) ; "
+        f"echo '--- backend.log ---' ; "
+        f"tail -n {lines} /tmp/cloud_health/backend.log 2>/dev/null || true"
+    )
+    try:
+        _, stdout, _ = await asyncio.to_thread(ssh.exec_command, cmd)
+        out = await asyncio.to_thread(stdout.read)
+        return out.decode("utf-8", errors="replace").strip()
+    except Exception as e:
+        return f"(failed to read bastion log: {e})"
 
 
 # ── Entry point ───────────────────────────────────────────────────────────────

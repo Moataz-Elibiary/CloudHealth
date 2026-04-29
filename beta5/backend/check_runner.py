@@ -77,6 +77,9 @@ class CheckRunner:
             cluster_name = self.cluster.name,
             cluster_type = self.cluster.type,
         )
+        # Expose the in-progress result so the cancel path can snapshot
+        # partial sections without waiting for run() to return.
+        self._working_result = res
 
         if self.on_headline:
             await self.on_headline(

@@ -16,6 +16,7 @@ import atexit
 import argparse
 import asyncio
 import json
+import logging
 import os
 import signal
 import sys
@@ -121,6 +122,9 @@ _EVENT_HISTORY:  list[dict] = []
 # Per-connection subscriber queues — supports multiple simultaneous browser tabs
 _ACTIVE_SUBSCRIBERS: set[asyncio.Queue] = set()
 _RUN_TASK: asyncio.Task | None = None
+# Holds the current CheckRunner so a cancel can reach in and snapshot
+# partial results when the task is torn down.
+_ACTIVE_RUNNER = None
 
 
 # ── Lock helpers ──────────────────────────────────────────────────────────────
@@ -252,11 +256,13 @@ async def _broadcast(message: dict, *, record: bool = True):
 # ── Check execution task ──────────────────────────────────────────────────────
 
 async def _run_checks_task(config: dict, subscriber_queue: asyncio.Queue):
-    global _CHECKS_RUNNING, _LAST_RESULT, _RUN_TASK, _LAST_ACTIVITY, _HEARTBEAT_TIMEOUT
+    global _CHECKS_RUNNING, _LAST_RESULT, _RUN_TASK, _ACTIVE_RUNNER, \
+           _LAST_ACTIVITY, _HEARTBEAT_TIMEOUT
     _RUN_CONTEXT.run_id = config.get("run_id", "-")
     _RUN_CONTEXT.user   = config.get("user_id", "-")
     log = logging.getLogger("cloud_health.run")
     log.info("Run started")
+    runner = None
     try:
         app_settings = config.get("app", {})
         ht = app_settings.get("heartbeat_timeout")
@@ -276,12 +282,28 @@ async def _run_checks_task(config: dict, subscriber_queue: asyncio.Queue):
             on_result        = on_result,
             subscriber_queue = subscriber_queue,
         )
+        _ACTIVE_RUNNER = runner
         result  = await runner.run()
         summary = result.to_dict()
         _LAST_RESULT = summary
         _write_results(summary)
         await _broadcast({"type": "all_done", "summary": summary}, record=False)
         _LAST_ACTIVITY = time.monotonic()
+    except asyncio.CancelledError:
+        # User-initiated cancel — snapshot whatever the runner produced so far
+        # and write it out with status='CANCELLED'. The history DB (P3.1) will
+        # later persist this same payload via the same write path.
+        log.info("Run cancelled — saving partial results")
+        summary = _snapshot_partial_summary(runner)
+        if summary is not None:
+            summary["overall_status"] = "CANCELLED"
+            _LAST_RESULT = summary
+            _write_results(summary)
+            await _broadcast(
+                {"type": "cancelled", "summary": summary}, record=False)
+        else:
+            await _broadcast({"type": "cancelled"}, record=False)
+        raise
     except Exception as exc:
         log.error("Run failed: %s", exc)
         await _broadcast({"type": "error", "message": str(exc)}, record=False)
@@ -289,8 +311,32 @@ async def _run_checks_task(config: dict, subscriber_queue: asyncio.Queue):
         log.info("Run finished")
         _CHECKS_RUNNING     = False
         _RUN_TASK           = None
+        _ACTIVE_RUNNER      = None
         _RUN_CONTEXT.run_id = "-"
         _RUN_CONTEXT.user   = "-"
+
+
+def _snapshot_partial_summary(runner) -> dict | None:
+    """Build a ClusterResult-shaped dict from whatever sections the runner
+    has accumulated so far. Used by the cancel path so partial results aren't
+    thrown away."""
+    if runner is None:
+        return None
+    try:
+        from result import ClusterResult
+        partial = ClusterResult(
+            cluster_name = runner.cluster.name,
+            cluster_type = runner.cluster.type,
+        )
+        # Sections are appended to the runner's working result as they finish;
+        # mirror them onto the snapshot so the partial dict is well-formed.
+        existing = getattr(runner, "_working_result", None)
+        if existing is not None and getattr(existing, "sections", None):
+            partial.sections = list(existing.sections)
+        partial.end_time = datetime.now()
+        return partial.to_dict()
+    except Exception:
+        return None
 
 
 # ── Heartbeat watchdog ────────────────────────────────────────────────────────
@@ -324,6 +370,28 @@ async def lifespan(_app: FastAPI):
 
 
 app = FastAPI(title="CloudHealth Beta4 Backend", lifespan=lifespan)
+
+
+@app.get("/api/lock_status")
+async def lock_status():
+    """Surface current lock state so the frontend can detect a backend
+    already running on the bastion before launching another. Returns the
+    owner pid + timestamp + user when locked, or a 'free' marker otherwise."""
+    payload = _read_lock_payload()
+    if not payload:
+        return {"locked": False}
+    pid = payload.get("pid")
+    if isinstance(pid, str) and pid.isdigit():
+        pid = int(pid)
+    alive = isinstance(pid, int) and _pid_exists(pid)
+    return {
+        "locked":    alive,
+        "stale":     bool(payload) and not alive,
+        "pid":       pid,
+        "timestamp": payload.get("timestamp"),
+        "user":      payload.get("user"),
+        "running":   _CHECKS_RUNNING,
+    }
 
 
 def _handle_shutdown(*_):
@@ -424,6 +492,18 @@ async def websocket_endpoint(websocket: WebSocket):
                 await websocket.send_json({"type": "checks_started"})
                 _RUN_TASK = asyncio.create_task(
                     _run_checks_task(config, sub_queue))
+                continue
+
+            # ── Cancel ────────────────────────────────────────────────────────
+            if action == "cancel":
+                if _RUN_TASK is None or _RUN_TASK.done():
+                    await websocket.send_json({
+                        "type": "cancel_ack", "running": False})
+                    continue
+                await _broadcast({"type": "cancelling"}, record=False)
+                _RUN_TASK.cancel()
+                await websocket.send_json({
+                    "type": "cancel_ack", "running": True})
                 continue
 
     except WebSocketDisconnect:

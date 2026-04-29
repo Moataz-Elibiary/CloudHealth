@@ -25,7 +25,12 @@ class WSProxy:
         local_port:     int,
         cluster_name:   str,
         config_payload: dict,
+        on_backend_ws=None,
     ):
+        """Proxy events from the bastion backend's WS to the UI WS.
+        on_backend_ws(ws) is invoked once with the live websocket each time a
+        connection is established, so the caller can register the handle for
+        cancellation. It receives None when the connection drops."""
         uri        = f"ws://127.0.0.1:{local_port}/ws"
         reconnects = 0
         started    = False   # True once start_checks was sent this session
@@ -35,6 +40,11 @@ class WSProxy:
                 async with websockets.connect(
                     uri, ping_interval=None
                 ) as backend_ws:
+                    if on_backend_ws is not None:
+                        try:
+                            on_backend_ws(backend_ws)
+                        except Exception:
+                            pass
 
                     # ── Await ready handshake ─────────────────────────────────
                     raw  = await asyncio.wait_for(backend_ws.recv(), timeout=10)
@@ -101,6 +111,23 @@ class WSProxy:
                                     "summary": summary,
                                 })
                                 return summary
+
+                            # Cancel acknowledged + final partial summary
+                            if mtype == "cancelled":
+                                summary = data.get("summary")
+                                await ui_ws.send_json({
+                                    "type":    "cancelled",
+                                    "cluster": cluster_name,
+                                    "summary": summary,
+                                })
+                                return summary
+
+                            if mtype == "cancelling":
+                                await ui_ws.send_json({
+                                    "type":    "cancelling",
+                                    "cluster": cluster_name,
+                                })
+                                continue
 
                             # Forward all other messages (headline, result,
                             # check_result, section_start, section_done, error)
