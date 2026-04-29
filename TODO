@@ -80,7 +80,7 @@ These items from the earlier plan are confirmed complete in beta5 and excluded f
 
 ### 🔴 P1.3 — Pre-flight credential validation before SFTP push
 **Why first:** Carry-over from earlier review (still PENDING per beta5 issues file). Currently if SSH auth fails on a cluster bastion, the user only sees a generic exception. Must validate connectivity + auth + Python availability across all selected clusters before starting the actual run.
-**Status: ✅ DONE** (merged via PR #6, commit 7492291) — `frontend/core/preflight.py` added with parallel checks, "Run Pre-flight Only" button and override checkbox in UI.
+**Status: ✅ DONE** (merged via PR #6, commit 7492291; DB write added in follow-up) — `frontend/core/preflight.py` added with parallel checks, "Run Pre-flight Only" button and override checkbox in UI. Preflight results persisted to `preflight_runs` / `preflight_results` tables in history DB.
 
 **Tasks:**
 - New module `frontend/core/preflight.py`
@@ -92,7 +92,7 @@ These items from the earlier plan are confirmed complete in beta5 and excluded f
 - Optional "Skip pre-flight" checkbox for power users (default: pre-flight enabled)
 - On version change (newly pushed backend), do deeper pre-flight: actually start the backend on each bastion and ping it before declaring ready
 - Pre-flight runs in parallel respecting `parallel_limit`
-- Pre-flight result table also written to history DB (when P3.1 lands) for audit
+- ✅ Pre-flight result table written to history DB — `preflight_runs` + `preflight_results` tables, `write_preflight()` called in `_run_preflight_phase()`
 
 **Files affected:** new `frontend/core/preflight.py`, `frontend/app.py` (add WebSocket action `preflight`), `frontend/static/index.html` (preflight UI with override checkbox)
 
@@ -102,14 +102,14 @@ These items from the earlier plan are confirmed complete in beta5 and excluded f
 
 ### 🟠 P2.1 — Cancel / Stop button (with partial results saved)
 **Why high:** Once a run starts, the user has no way to abort cleanly. Closing the browser orphans backends until the heartbeat watchdog kicks in. Blocks confident production use.
-**Status: ✅ DONE** (merged via PR #6, commit d861034) — Stop button + `cancel` WebSocket action; backend snapshots partial results with `status='CANCELLED'` to `~/Documents/cloud_health/last_run_cancelled.json` until P3.1 lands.
+**Status: ✅ DONE** — Stop button + `cancel` WebSocket action (PR #6); cancelled runs written to history DB with `status='CANCELLED'` including zero-result cancels (P3.1 follow-up).
 
 **Tasks:**
 - Add "Stop" button to `frontend/static/index.html`, visible only when run is active
 - New WebSocket action `cancel` from UI → frontend
 - Frontend cancels `_RUN_TASK` on each cluster, sends `cancel` action over the SSH-tunneled WebSocket to each bastion backend
 - Backend cancels its `_RUN_TASK`, releases lock; in-flight SSH sessions from the bastion to cluster nodes are torn down naturally as coroutines unwind — no explicit kill step needed
-- **Partial results saved to history DB with `status='CANCELLED'`** per design decision 4 (when P3.1 lands; until then, save to `results.json` with cancelled marker)
+- ✅ **Partial results saved to history DB with `status='CANCELLED'`** — `write_run()` called unconditionally (even when all clusters cancelled before returning any result)
 - Frontend tunnel manager closes all tunnels on cancel
 - Test partial-state cleanup: cancel during SFTP push, during check execution, during cleanup
 - UI shows "Cancelling…" → "Cancelled" state clearly

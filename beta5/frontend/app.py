@@ -419,11 +419,13 @@ async def _run_preflight_phase(ui_ws: WebSocket):
         })
         return None
 
-    started_at = datetime.now(timezone.utc).isoformat(timespec="seconds")
+    preflight_id = str(uuid.uuid4())
+    started_at_dt = datetime.now(timezone.utc)
     await _safe_send(ui_ws, {
-        "type":       "preflight_started",
-        "total":      len(clusters),
-        "started_at": started_at,
+        "type":         "preflight_started",
+        "preflight_id": preflight_id,
+        "total":        len(clusters),
+        "started_at":   started_at_dt.isoformat(timespec="seconds"),
     })
 
     async def _emit(row: PreflightResult):
@@ -437,16 +439,15 @@ async def _run_preflight_phase(ui_ws: WebSocket):
 
     all_ok = all(r.status == "OK" for r in rows)
     await _safe_send(ui_ws, {
-        "type":   "preflight_done",
-        "all_ok": all_ok,
-        "rows":   [r.to_dict() for r in rows],
+        "type":         "preflight_done",
+        "preflight_id": preflight_id,
+        "all_ok":       all_ok,
+        "rows":         [r.to_dict() for r in rows],
     })
 
-    # P3.1 hook: persist rows to history DB once frontend/core/history_db.py lands.
-    # The PreflightResult dict shape is already DB-row friendly (flat scalar
-    # fields) so the call site will be:
-    #   from core.history_db import write_preflight
-    #   await write_preflight(run_id=..., rows=[r.to_dict() for r in rows])
+    # P1.3 — persist preflight audit record to history DB
+    history_db.init_db()
+    history_db.write_preflight(preflight_id, started_at_dt, [r.to_dict() for r in rows])
 
     return rows
 
@@ -538,15 +539,14 @@ async def _run_all_clusters(
     log.info("All clusters %s in %.1fs — %d result(s) collected",
              run_status.lower(), elapsed, len(results))
 
-    # P3.1 — persist to history DB
+    # P3.1 — persist to history DB (always, including cancelled runs with 0 results)
     history_db.init_db()
-    if results:
-        history_db.write_run(
-            run_id=run_id, user=user_id,
-            started_at=run_start, finished_at=run_end,
-            results=results, status=run_status,
-            source="ui", max_runs=history_max_runs,
-        )
+    history_db.write_run(
+        run_id=run_id, user=user_id,
+        started_at=run_start, finished_at=run_end,
+        results=results, status=run_status,
+        source="ui", max_runs=history_max_runs,
+    )
 
     if results:
         # P3.3 — build diff_data: {cluster_name: {(section, idx): prev_status}}

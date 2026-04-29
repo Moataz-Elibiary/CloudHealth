@@ -56,10 +56,41 @@ CREATE TABLE IF NOT EXISTS check_results (
     command       TEXT
 );
 
+-- Pre-flight audit log — one row per cluster per preflight run.
+-- preflight_run_id is a separate uuid so standalone preflights (no health
+-- check after) still get their own record in the audit trail.
+CREATE TABLE IF NOT EXISTS preflight_runs (
+    id            INTEGER PRIMARY KEY AUTOINCREMENT,
+    preflight_id  TEXT    UNIQUE NOT NULL,
+    started_at    TEXT    NOT NULL,
+    total         INTEGER NOT NULL DEFAULT 0,
+    passed        INTEGER NOT NULL DEFAULT 0,
+    all_ok        INTEGER NOT NULL DEFAULT 0
+);
+
+CREATE TABLE IF NOT EXISTS preflight_results (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    preflight_id    TEXT    NOT NULL REFERENCES preflight_runs(preflight_id) ON DELETE CASCADE,
+    cluster_name    TEXT    NOT NULL,
+    cluster_type    TEXT    NOT NULL DEFAULT '',
+    installer_ip    TEXT    NOT NULL DEFAULT '',
+    timestamp       TEXT    NOT NULL,
+    reachable       INTEGER NOT NULL DEFAULT 0,
+    auth_ok         INTEGER NOT NULL DEFAULT 0,
+    python_ready    INTEGER NOT NULL DEFAULT 0,
+    python_version  TEXT,
+    backend_version TEXT,
+    duration_ms     INTEGER NOT NULL DEFAULT 0,
+    status          TEXT    NOT NULL DEFAULT 'ERROR',
+    error           TEXT
+);
+
 CREATE INDEX IF NOT EXISTS idx_runs_started    ON runs(started_at DESC);
 CREATE INDEX IF NOT EXISTS idx_cr_run          ON cluster_results(run_id, cluster_name);
 CREATE INDEX IF NOT EXISTS idx_chk_run_cluster ON check_results(run_id, cluster_name);
 CREATE INDEX IF NOT EXISTS idx_chk_status      ON check_results(run_id, cluster_name, status);
+CREATE INDEX IF NOT EXISTS idx_pf_runs_started ON preflight_runs(started_at DESC);
+CREATE INDEX IF NOT EXISTS idx_pf_res_id       ON preflight_results(preflight_id, cluster_name);
 """
 
 
@@ -161,6 +192,89 @@ def _prune(conn: sqlite3.Connection, max_runs: int) -> None:
         )
         conn.commit()
         log.info("history_db: pruned %d old run(s)", len(old))
+
+
+def write_preflight(
+    preflight_id: str,
+    started_at:   datetime,
+    rows:         List[Dict[str, Any]],
+) -> None:
+    """Persist a preflight audit record in a single transaction.
+
+    rows is a list of PreflightResult.to_dict() dicts.
+    """
+    passed = sum(1 for r in rows if r.get("status") == "OK")
+    all_ok = int(passed == len(rows) and len(rows) > 0)
+    conn = _connect()
+    try:
+        with conn:
+            conn.execute(
+                "INSERT OR REPLACE INTO preflight_runs "
+                "(preflight_id, started_at, total, passed, all_ok) "
+                "VALUES (?,?,?,?,?)",
+                (preflight_id, started_at.isoformat(), len(rows), passed, all_ok),
+            )
+            for r in rows:
+                conn.execute(
+                    "INSERT INTO preflight_results "
+                    "(preflight_id, cluster_name, cluster_type, installer_ip, "
+                    " timestamp, reachable, auth_ok, python_ready, python_version, "
+                    " backend_version, duration_ms, status, error) "
+                    "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                    (
+                        preflight_id,
+                        r.get("cluster_name", ""),
+                        r.get("cluster_type", ""),
+                        r.get("installer_ip", ""),
+                        r.get("timestamp", ""),
+                        int(bool(r.get("reachable"))),
+                        int(bool(r.get("auth_ok"))),
+                        int(bool(r.get("python_ready"))),
+                        r.get("python_version"),
+                        r.get("backend_version"),
+                        r.get("duration_ms", 0),
+                        r.get("status", "ERROR"),
+                        r.get("error"),
+                    ),
+                )
+    except Exception:
+        log.exception("history_db.write_preflight failed for preflight_id=%s", preflight_id)
+    finally:
+        conn.close()
+
+
+def get_preflight_runs(limit: int = 30) -> List[Dict[str, Any]]:
+    """Return summary rows for the most recent preflight runs, newest first."""
+    conn = _connect()
+    try:
+        rows = conn.execute(
+            "SELECT preflight_id, started_at, total, passed, all_ok "
+            "FROM preflight_runs ORDER BY started_at DESC LIMIT ?",
+            (limit,),
+        ).fetchall()
+        return [dict(r) for r in rows]
+    finally:
+        conn.close()
+
+
+def get_preflight_run(preflight_id: str) -> Optional[Dict[str, Any]]:
+    """Return a preflight run summary with its per-cluster result rows."""
+    conn = _connect()
+    try:
+        row = conn.execute(
+            "SELECT * FROM preflight_runs WHERE preflight_id = ?", (preflight_id,)
+        ).fetchone()
+        if not row:
+            return None
+        result = dict(row)
+        clusters = conn.execute(
+            "SELECT * FROM preflight_results WHERE preflight_id = ? ORDER BY cluster_name",
+            (preflight_id,),
+        ).fetchall()
+        result["clusters"] = [dict(c) for c in clusters]
+        return result
+    finally:
+        conn.close()
 
 
 # ── Read ──────────────────────────────────────────────────────────────────────
