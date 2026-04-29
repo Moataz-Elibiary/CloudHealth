@@ -7,7 +7,7 @@ Filters work correctly: only show matching items, not just highlight them.
 from __future__ import annotations
 from datetime import datetime
 from pathlib import Path
-from typing import List, Optional
+from typing import Dict, List, Optional, Tuple
 
 try:
     from result import ClusterResult, SectionResult, Status
@@ -582,31 +582,49 @@ def _badge(status: Status) -> str:
     return f'<span class="badge badge-{status.value}">{ic} {lb}</span>'
 
 
-def _render_item(item, idx: int, section_id: str) -> str:
+def _render_item(item, idx: int, section_id: str,
+                  diff_marker: Optional[str] = None) -> str:
     st    = item.status
     cls   = f"cp-item st-{st.value}"
     badge = _badge(st)
     msg   = _esc(item.message)
+
+    diff_badge = ""
+    extra_cls  = ""
+    if diff_marker == "NEW":
+        diff_badge = ('<span style="margin-left:6px;padding:1px 7px;font-size:.65rem;'
+                      'font-weight:700;border-radius:3px;background:rgba(239,68,68,.18);'
+                      'color:#ef4444;border:1px solid #ef444460;letter-spacing:.05em">NEW</span>')
+        extra_cls  = " diff-new"
+    elif diff_marker == "RESOLVED":
+        diff_badge = ('<span style="margin-left:6px;padding:1px 7px;font-size:.65rem;'
+                      'font-weight:700;border-radius:3px;background:rgba(34,197,94,.15);'
+                      'color:#22c55e;border:1px solid #22c55e60;letter-spacing:.05em">'
+                      'RESOLVED</span>')
+        extra_cls  = " diff-resolved"
+        msg        = f'<span style="text-decoration:line-through;opacity:.6">{msg}</span>'
 
     cmd_html = ""
     if item.command:
         cmd_html = f'<div class="cp-item-cmd">{_esc(item.command)}</div>'
 
     detail_html = ""
-    if item.detail.strip():
+    if item.detail and item.detail.strip():
         detail_html = f'<pre class="cp-item-detail">{_esc(item.detail.strip())}</pre>'
 
     return (
-        f'<li class="{cls}" data-status="{st.value}" id="{section_id}_i{idx}">'
+        f'<li class="{cls}{extra_cls}" data-status="{st.value}" id="{section_id}_i{idx}">'
         f'  <div class="cp-item-row">{badge}'
         f'    <span class="cp-item-msg">{msg}</span>'
+        f'    {diff_badge}'
         f'  </div>'
         f'  {cmd_html}{detail_html}'
         f'</li>'
     )
 
 
-def _render_section(s: Section, s_idx: int, c_idx: int) -> str:
+def _render_section(s: Section, s_idx: int, c_idx: int,
+                     diff_map: Optional[Dict[int, str]] = None) -> str:
     sid  = f"c{c_idx}_s{s_idx}"
     ws   = s.status
     dur  = f'<span class="cp-section-dur">{s.duration_s:.1f}s</span>' if s.duration_s else ""
@@ -614,7 +632,28 @@ def _render_section(s: Section, s_idx: int, c_idx: int) -> str:
             f'<span class="cp-cnt fail">{s.fail_count}✕</span>'
             f'<span class="cp-cnt warn">{s.warn_count}⚠</span>')
 
-    items_html = "\n".join(_render_item(item, i, sid) for i, item in enumerate(s.checks))
+    diff_map = diff_map or {}
+    active_items   = []
+    resolved_items = []
+    for i, item in enumerate(s.checks):
+        marker = diff_map.get(i)
+        if marker == "RESOLVED":
+            resolved_items.append(_render_item(item, i, sid, diff_marker="RESOLVED"))
+        else:
+            active_items.append(_render_item(item, i, sid, diff_marker=marker))
+
+    items_html = "\n".join(active_items)
+
+    resolved_html = ""
+    if resolved_items:
+        resolved_html = (
+            f'<details class="cp-resolved" open>'
+            f'<summary style="color:var(--pass,#22c55e);font-size:.75rem;'
+            f'font-weight:600;padding:.3rem 0;cursor:pointer">'
+            f'✓ Resolved ({len(resolved_items)})</summary>'
+            f'<ul class="cp-items">{"".join(resolved_items)}</ul>'
+            f'</details>'
+        )
 
     raw_html = ""
     if s.raw_log.strip():
@@ -634,12 +673,36 @@ def _render_section(s: Section, s_idx: int, c_idx: int) -> str:
       </summary>
       <div class="cp-section-body">
         <ul class="cp-items">{items_html}</ul>
+        {resolved_html}
         {raw_html}
       </div>
     </details>"""
 
 
-def _render_cluster(r: ClusterResult, c_idx: int) -> str:
+def _build_section_diff_map(
+    section_name: str,
+    checks:       list,
+    prev_checks:  Dict,
+) -> Dict[int, str]:
+    """Return {message_index: "NEW"|"RESOLVED"} for one section."""
+    dm: Dict[int, str] = {}
+    problem = {Status.FAIL.value, Status.ERROR.value, Status.WARN.value}
+    for idx, item in enumerate(checks):
+        prev_status = prev_checks.get((section_name, idx))
+        curr_status = item.status.value if hasattr(item.status, "value") else str(item.status)
+        if prev_status is None:
+            if curr_status in problem:
+                dm[idx] = "NEW"
+        else:
+            if prev_status in problem and curr_status not in problem:
+                dm[idx] = "RESOLVED"
+            elif prev_status not in problem and curr_status in problem:
+                dm[idx] = "NEW"
+    return dm
+
+
+def _render_cluster(r: ClusterResult, c_idx: int,
+                    prev_checks: Optional[Dict] = None) -> str:
     cid  = f"cluster_{c_idx}"
     ws   = r.overall_status
     ts   = r.start_time.strftime("%Y-%m-%d %H:%M:%S") if r.start_time else ""
@@ -665,7 +728,12 @@ def _render_cluster(r: ClusterResult, c_idx: int) -> str:
             f'<span class="cp-cnt warn">{r.warn_count}⚠</span>')
 
     sections_html = "\n".join(
-        _render_section(s, i, c_idx) for i, s in enumerate(r.sections)
+        _render_section(
+            s, i, c_idx,
+            diff_map=(_build_section_diff_map(s.name, s.checks, prev_checks)
+                      if prev_checks else None),
+        )
+        for i, s in enumerate(r.sections)
     )
 
     auto_open = 'open' if r.fail_count > 0 else ''
@@ -728,10 +796,56 @@ def _scoreboard(results: List[ClusterResult], ts: str) -> str:
 #  Full page assembler
 # ══════════════════════════════════════════════════════════════════════════════
 
+def _diff_banner(results: List[ClusterResult],
+                  diff_data: Dict[str, Dict]) -> str:
+    """Build the 'What's Changed' banner summarising new/resolved items."""
+    new_fail = new_warn = resolved = 0
+    problem  = {Status.FAIL.value, Status.ERROR.value, Status.WARN.value}
+    for r in results:
+        prev = diff_data.get(r.cluster_name, {})
+        if not prev:
+            continue
+        for s in r.sections:
+            for idx, item in enumerate(s.checks):
+                prev_st = prev.get((s.name, idx))
+                curr_st = item.status.value
+                if prev_st is None and curr_st in problem:
+                    if curr_st == Status.WARN.value:
+                        new_warn += 1
+                    else:
+                        new_fail += 1
+                elif prev_st in problem and curr_st not in problem:
+                    resolved += 1
+                elif prev_st not in problem and curr_st in problem:
+                    if curr_st == Status.WARN.value:
+                        new_warn += 1
+                    else:
+                        new_fail += 1
+    if new_fail == 0 and new_warn == 0 and resolved == 0:
+        return ""
+    parts = []
+    if new_fail:
+        parts.append(f'<span style="color:#ef4444">▲ {new_fail} new failure{"s" if new_fail!=1 else ""}</span>')
+    if new_warn:
+        parts.append(f'<span style="color:#f59e0b">▲ {new_warn} new warning{"s" if new_warn!=1 else ""}</span>')
+    if resolved:
+        parts.append(f'<span style="color:#22c55e">▼ {resolved} resolved</span>')
+    return (
+        '<div style="margin:0 0 1rem;padding:.75rem 1.25rem;border-radius:6px;'
+        'background:rgba(96,165,250,.08);border:1px solid rgba(96,165,250,.25);'
+        'font-size:.82rem;display:flex;gap:1.5rem;align-items:center;flex-wrap:wrap">'
+        '<span style="font-weight:700;color:#60a5fa">⟳ What\'s Changed</span>'
+        + "  ".join(parts)
+        + "</div>"
+    )
+
+
 class HTMLReporter:
-    def __init__(self, results: List[ClusterResult], output_dir: Path):
+    def __init__(self, results: List[ClusterResult], output_dir: Path,
+                 diff_data: Optional[Dict[str, Dict]] = None):
         self.results    = results
         self.output_dir = output_dir
+        self.diff_data  = diff_data or {}
 
     def generate(self) -> Path:
         ts      = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -741,8 +855,12 @@ class HTMLReporter:
         overall = "FAIL" if tf > 0 else ("WARN" if tw > 0 else "PASS")
         ov_cls  = f"cp-overall-{overall.lower()}"
 
-        scoreboard   = _scoreboard(self.results, ts)
-        clusters_html = "\n".join(_render_cluster(r, i) for i, r in enumerate(self.results))
+        scoreboard    = _scoreboard(self.results, ts)
+        diff_banner   = _diff_banner(self.results, self.diff_data) if self.diff_data else ""
+        clusters_html = "\n".join(
+            _render_cluster(r, i, prev_checks=self.diff_data.get(r.cluster_name))
+            for i, r in enumerate(self.results)
+        )
 
         # filter buttons with counts
         n_fail = sum(1 for r in self.results for s in r.sections for item in s.checks
@@ -833,6 +951,7 @@ class HTMLReporter:
 
 <!-- ── CLUSTERS ──────────────────────────────────────────────────────── -->
 <div class="cp-content" id="cp-clusters">
+{diff_banner}
 {clusters_html}
 </div>
 

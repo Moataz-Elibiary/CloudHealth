@@ -100,6 +100,31 @@ body{font-family:'Inter',system-ui,sans-serif;background:linear-gradient(135deg,
 .save-btn:hover{background:rgba(99,102,241,.1)}
 .save-ok{font-size:.72rem;color:var(--pass);margin-top:.3rem;display:none}
 .sidebar-footer{padding:1rem 1.25rem;text-align:center;font-size:.68rem;color:var(--dim);opacity:.4;border-top:1px solid var(--glass-b)}
+/* ── Cluster selection (P3.4) ── */
+.cluster-list{display:flex;flex-direction:column;gap:.2rem;margin-bottom:.65rem}
+.cluster-item{display:flex;align-items:center;gap:.5rem;padding:.3rem .5rem;border-radius:5px;border:1px solid transparent;cursor:pointer;font-size:.78rem;transition:background .12s}
+.cluster-item:hover{background:rgba(99,102,241,.08)}
+.cluster-item input{accent-color:var(--primary);cursor:pointer;flex-shrink:0}
+.cluster-type-badge{font-size:.62rem;padding:1px 6px;border-radius:3px;font-weight:700;text-transform:uppercase;letter-spacing:.04em}
+.cluster-type-badge.ocp{background:rgba(239,68,68,.15);color:#ef4444}
+.cluster-type-badge.cvim{background:rgba(245,158,11,.15);color:#f59e0b}
+.cluster-type-badge.host{background:rgba(96,165,250,.15);color:#60a5fa}
+.cluster-sel-actions{display:flex;gap:.4rem;margin-bottom:.5rem}
+.cluster-sel-btn{flex:1;padding:.25rem .4rem;font-size:.68rem;border:1px solid var(--glass-b);border-radius:4px;background:transparent;color:var(--dim);cursor:pointer;transition:all .12s}
+.cluster-sel-btn:hover{border-color:var(--primary);color:var(--primary)}
+/* ── History tab (P3.2) ── */
+.history-list{display:flex;flex-direction:column;gap:.35rem}
+.hist-item{padding:.55rem .75rem;border-radius:6px;border:1px solid var(--glass-b);cursor:pointer;transition:all .15s;background:rgba(15,23,42,.3)}
+.hist-item:hover{border-color:var(--primary);background:rgba(99,102,241,.07)}
+.hist-item-header{display:flex;align-items:center;gap:.5rem;margin-bottom:.2rem}
+.hist-status{font-size:.65rem;font-weight:700;padding:1px 7px;border-radius:3px;text-transform:uppercase;letter-spacing:.04em}
+.hist-status.COMPLETED{background:rgba(34,197,94,.15);color:#22c55e}
+.hist-status.CANCELLED{background:rgba(245,158,11,.15);color:#f59e0b}
+.hist-status.UNKNOWN{background:rgba(107,114,128,.15);color:#6b7280}
+.hist-ts{font-size:.7rem;color:var(--dim);font-family:ui-monospace,monospace}
+.hist-user{font-size:.68rem;color:var(--dim)}
+.hist-counts{display:flex;gap:.4rem;font-size:.7rem;font-family:ui-monospace,monospace}
+.hist-counts .p{color:var(--pass)}.hist-counts .w{color:var(--warn)}.hist-counts .f{color:var(--fail)}
 
 /* ── MAIN ── */
 .main{flex:1;display:flex;flex-direction:column;overflow:hidden}
@@ -210,10 +235,21 @@ body{font-family:'Inter',system-ui,sans-serif;background:linear-gradient(135deg,
     <div class="tabs">
       <div class="tab active" data-tab="tab-checks">Test Cases</div>
       <div class="tab"        data-tab="tab-config">Configuration</div>
+      <div class="tab"        data-tab="tab-history" id="historyTab">History</div>
     </div>
 
     <!-- Tab: Checks -->
     <div id="tab-checks" class="tab-content active">
+      <!-- P3.4 cluster selection -->
+      <div id="clusterSelSection" style="margin-bottom:.75rem;display:none">
+        <div style="font-size:.7rem;font-weight:600;color:var(--dim);text-transform:uppercase;letter-spacing:.06em;margin-bottom:.4rem">Clusters</div>
+        <div class="cluster-sel-actions">
+          <button class="cluster-sel-btn" onclick="selectAllClusters()">All</button>
+          <button class="cluster-sel-btn" onclick="selectNoClusters()">None</button>
+          <button class="cluster-sel-btn" id="selFailedBtn" onclick="selectFailedClusters()" style="display:none">Failed</button>
+        </div>
+        <div id="clusterList" class="cluster-list"></div>
+      </div>
       <div id="checkGroups">
         <div style="text-align:center;color:var(--dim);padding:2rem 0;font-size:.82rem">Loading checks…</div>
       </div>
@@ -253,6 +289,17 @@ body{font-family:'Inter',system-ui,sans-serif;background:linear-gradient(135deg,
       <button class="save-btn" id="saveBtn">Save Config</button>
       <div class="save-ok" id="saveOk">✓ Saved</div>
     </div>
+    <!-- Tab: History (P3.2) -->
+    <div id="tab-history" class="tab-content">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:.6rem">
+        <span style="font-size:.7rem;font-weight:600;color:var(--dim);text-transform:uppercase;letter-spacing:.06em">Recent Runs</span>
+        <button onclick="loadHistory()" style="font-size:.68rem;background:transparent;border:1px solid var(--glass-b);color:var(--dim);padding:2px 8px;border-radius:4px;cursor:pointer">↻ Refresh</button>
+      </div>
+      <div id="historyList" class="history-list">
+        <div style="text-align:center;color:var(--dim);padding:2rem 0;font-size:.82rem">Loading…</div>
+      </div>
+    </div>
+
   </div>
   <div class="sidebar-footer">© 2026 CloudHealth Beta 4</div>
 </aside>
@@ -352,7 +399,15 @@ async function init() {
   populateConfig(cfg);
   renderCheckGroups(checks);
   if(cfg.last_enabled_checks?.length) restoreCheckSelection(cfg.last_enabled_checks, checks);
+  loadClusters();  // P3.4
 }
+
+// Load history when History tab is first activated (P3.2)
+document.querySelectorAll('.tab').forEach(t => {
+  t.addEventListener('click', () => {
+    if (t.dataset.tab === 'tab-history') loadHistory();
+  });
+});
 
 // Top-level config.yaml keys ↔ input element IDs. Shared by populateConfig
 // (load) and the Save handler so adding a new field only needs one edit.
@@ -793,11 +848,17 @@ $('runBtn').onclick = () => {
   const enabledChecks   = [...document.querySelectorAll('.chk-opt:checked')].map(c=>c.value);
   const skipPreflight   = $('opt_skip_preflight').checked;
   const ignoreFailures  = $('opt_ignore_failures').checked;
+  // P3.4 — send selected clusters (null = all)
+  const selBoxes = [...document.querySelectorAll('.cluster-chk:checked')];
+  const allBoxes = [...document.querySelectorAll('.cluster-chk')];
+  const selectedClusters = (selBoxes.length > 0 && selBoxes.length < allBoxes.length)
+    ? selBoxes.map(b => b.value) : null;
   ws.send(JSON.stringify({
-    action:           'start_all',
-    enabled_checks:   enabledChecks,
-    skip_preflight:   skipPreflight,
-    ignore_failures:  ignoreFailures,
+    action:            'start_all',
+    enabled_checks:    enabledChecks,
+    skip_preflight:    skipPreflight,
+    ignore_failures:   ignoreFailures,
+    selected_clusters: selectedClusters,
   }));
   $('runBtn').disabled = true;
 };
@@ -847,6 +908,142 @@ function onClusterCancelled(m) {
   if(m.summary) {
     state.totals.clusters++;
     updateScoreboard();
+  }
+}
+
+// ── P3.4 — Cluster selection ──────────────────────────────────────────────
+let _allClusters = [];   // [{name, type, environment}]
+let _failedClusters = new Set();
+
+async function loadClusters() {
+  try {
+    const res = await fetch('/api/inventory');
+    const data = await res.json();
+    _allClusters = data.clusters || [];
+    renderClusterList();
+    if (_allClusters.length > 0) {
+      $('clusterSelSection').style.display = '';
+    }
+  } catch(e) {
+    console.warn('Could not load inventory:', e);
+  }
+}
+
+function renderClusterList() {
+  const el = $('clusterList');
+  if (!_allClusters.length) { el.innerHTML = ''; return; }
+  el.innerHTML = _allClusters.map(c => {
+    const typeCls = (c.type||'').toLowerCase();
+    return `<label class="cluster-item">
+      <input type="checkbox" class="cluster-chk" value="${c.name}" checked>
+      <span style="flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${c.name}">${c.name}</span>
+      <span class="cluster-type-badge ${typeCls}">${(c.type||'?').toUpperCase()}</span>
+    </label>`;
+  }).join('');
+}
+
+function selectAllClusters() {
+  document.querySelectorAll('.cluster-chk').forEach(b => b.checked = true);
+}
+function selectNoClusters() {
+  document.querySelectorAll('.cluster-chk').forEach(b => b.checked = false);
+}
+function selectFailedClusters() {
+  document.querySelectorAll('.cluster-chk').forEach(b => {
+    b.checked = _failedClusters.has(b.value);
+  });
+}
+
+// After a run completes, mark which clusters had failures so "Failed" button works.
+function markFailedClusters(results) {
+  _failedClusters = new Set(
+    (results || []).filter(r => r.fail_count > 0 || !r.login_success).map(r => r.cluster_name)
+  );
+  $('selFailedBtn').style.display = _failedClusters.size > 0 ? '' : 'none';
+}
+
+// ── P3.2 — History tab ───────────────────────────────────────────────────
+async function loadHistory() {
+  const el = $('historyList');
+  el.innerHTML = '<div style="text-align:center;color:var(--dim);padding:1rem 0;font-size:.8rem">Loading…</div>';
+  try {
+    const res  = await fetch('/api/history?limit=30');
+    const data = await res.json();
+    const runs = data.runs || [];
+    if (!runs.length) {
+      el.innerHTML = '<div style="text-align:center;color:var(--dim);padding:2rem 0;font-size:.8rem">No runs recorded yet.</div>';
+      return;
+    }
+    el.innerHTML = runs.map(r => renderHistoryItem(r)).join('');
+  } catch(e) {
+    el.innerHTML = `<div style="color:var(--fail);font-size:.78rem;padding:.5rem">${e}</div>`;
+  }
+}
+
+function renderHistoryItem(r) {
+  const ts    = r.started_at ? r.started_at.replace('T',' ').substring(0,16) : '—';
+  const st    = r.status || 'UNKNOWN';
+  const src   = r.source ? `<span style="font-size:.65rem;color:var(--dim);margin-left:auto">${r.source}</span>` : '';
+  return `<div class="hist-item" onclick="openHistoryRun('${r.run_id}')">
+    <div class="hist-item-header">
+      <span class="hist-status ${st}">${st}</span>
+      <span class="hist-ts">${ts}</span>
+      ${src}
+    </div>
+    <div style="display:flex;justify-content:space-between;align-items:center">
+      <span class="hist-user">👤 ${r.user||'?'} · ${r.cluster_count||0} cluster${r.cluster_count!==1?'s':''}</span>
+    </div>
+  </div>`;
+}
+
+async function openHistoryRun(runId) {
+  try {
+    const res  = await fetch(`/api/history/${runId}`);
+    if (!res.ok) { showError('Run not found in history'); return; }
+    const run  = await res.json();
+    const ts   = run.started_at ? run.started_at.replace('T',' ').substring(0,19) : '';
+    // Build a simple summary table in the main area
+    let html = `<div style="padding:1.5rem">
+      <div style="font-size:.75rem;color:var(--dim);margin-bottom:.75rem">
+        History — ${ts} · ${run.user||'?'} · ${run.status}
+      </div>
+      <table style="width:100%;border-collapse:collapse;font-size:.8rem">
+        <thead><tr style="color:var(--dim);font-size:.7rem;text-transform:uppercase;letter-spacing:.04em">
+          <th style="text-align:left;padding:.35rem .5rem;border-bottom:1px solid var(--glass-b)">Cluster</th>
+          <th style="padding:.35rem .5rem;border-bottom:1px solid var(--glass-b)">Type</th>
+          <th style="padding:.35rem .5rem;border-bottom:1px solid var(--glass-b)">Status</th>
+          <th style="padding:.35rem .5rem;border-bottom:1px solid var(--glass-b)">✓</th>
+          <th style="padding:.35rem .5rem;border-bottom:1px solid var(--glass-b)">✕</th>
+          <th style="padding:.35rem .5rem;border-bottom:1px solid var(--glass-b)">⚠</th>
+        </tr></thead><tbody>`;
+    for (const c of (run.clusters||[])) {
+      const stColor = c.status==='PASS'?'var(--pass)':c.status==='FAIL'?'var(--fail)':'var(--warn)';
+      html += `<tr>
+        <td style="padding:.35rem .5rem;border-bottom:1px solid rgba(255,255,255,.04)">${c.cluster_name}</td>
+        <td style="text-align:center;padding:.35rem .5rem;border-bottom:1px solid rgba(255,255,255,.04);font-size:.7rem;color:var(--dim)">${(c.cluster_type||'').toUpperCase()}</td>
+        <td style="text-align:center;padding:.35rem .5rem;border-bottom:1px solid rgba(255,255,255,.04);color:${stColor};font-weight:700">${c.status}</td>
+        <td style="text-align:center;padding:.35rem .5rem;border-bottom:1px solid rgba(255,255,255,.04);color:var(--pass)">${c.pass_count}</td>
+        <td style="text-align:center;padding:.35rem .5rem;border-bottom:1px solid rgba(255,255,255,.04);color:var(--fail)">${c.fail_count}</td>
+        <td style="text-align:center;padding:.35rem .5rem;border-bottom:1px solid rgba(255,255,255,.04);color:var(--warn)">${c.warn_count}</td>
+      </tr>`;
+    }
+    html += '</tbody></table></div>';
+    // Show in main content area
+    const main = document.querySelector('.main-inner') || document.querySelector('.main');
+    if (main) {
+      const existing = $('historyRunView');
+      if (existing) existing.remove();
+      const div = document.createElement('div');
+      div.id = 'historyRunView';
+      div.style.cssText = 'position:absolute;inset:0;overflow-y:auto;background:var(--bg);z-index:5;';
+      div.innerHTML = `<div style="display:flex;justify-content:flex-end;padding:.75rem 1.5rem">
+        <button onclick="$('historyRunView').remove()" style="font-size:.75rem;background:transparent;border:1px solid var(--glass-b);color:var(--dim);padding:3px 12px;border-radius:4px;cursor:pointer">✕ Close</button>
+      </div>` + html;
+      document.querySelector('.main').style.position = 'relative';
+      document.querySelector('.main').appendChild(div);
+    }
+  } catch(e) {
+    showError('Failed to load history run: ' + e);
   }
 }
 
