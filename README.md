@@ -189,7 +189,7 @@ CloudHealth uses a three-tier architecture to reach compute and storage nodes wi
 ```
 ┌─────────────────┐    1× SSH tunnel     ┌─────────────────┐    N× parallel SSH   ┌──────────────┐
 │  User's laptop  │ ─── per cluster ───→ │  Bastion (per   │ ──── sessions ─────→ │  Compute /   │
-│   (frontend)    │ ←── WS over tunnel ─ │   cluster)      │ ←── (results) ─────── │  storage     │
+│   (frontend)    │ ←── WS over tunnel ─ │   cluster)      │ ←── (results) ────── │  storage     │
 │                 │                      │  + backend.py   │                      │  hosts       │
 └─────────────────┘                      └─────────────────┘                      └──────────────┘
 ```
