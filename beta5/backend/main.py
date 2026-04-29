@@ -372,28 +372,6 @@ async def lifespan(_app: FastAPI):
 app = FastAPI(title="CloudHealth Beta4 Backend", lifespan=lifespan)
 
 
-@app.get("/api/lock_status")
-async def lock_status():
-    """Surface current lock state so the frontend can detect a backend
-    already running on the bastion before launching another. Returns the
-    owner pid + timestamp + user when locked, or a 'free' marker otherwise."""
-    payload = _read_lock_payload()
-    if not payload:
-        return {"locked": False}
-    pid = payload.get("pid")
-    if isinstance(pid, str) and pid.isdigit():
-        pid = int(pid)
-    alive = isinstance(pid, int) and _pid_exists(pid)
-    return {
-        "locked":    alive,
-        "stale":     bool(payload) and not alive,
-        "pid":       pid,
-        "timestamp": payload.get("timestamp"),
-        "user":      payload.get("user"),
-        "running":   _CHECKS_RUNNING,
-    }
-
-
 def _handle_shutdown(*_):
     _release_lock()
     sys.exit(0)
