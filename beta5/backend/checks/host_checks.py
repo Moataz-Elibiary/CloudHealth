@@ -141,7 +141,7 @@ class HostHealthChecker:
         if r.exit_code != 0:
             sec.fail("Cannot get uptime"); return
         load_m = re.search(r"load average[s]?:\s+([\d.]+),\s*([\d.]+),\s*([\d.]+)", r.stdout)
-        cpu_r  = await ssh.run("nproc 2>/dev/null || echo 1", timeout=10)
+        cpu_r  = await self._r(ssh, sec, "nproc 2>/dev/null || echo 1", timeout=10)
         try:
             cpus = int(cpu_r.out.strip())
         except Exception:
@@ -456,7 +456,8 @@ class HostHealthChecker:
             sec.pass_("No failed systemd services")
         # Check critical services running
         for svc in ("sshd", "chronyd", "NetworkManager"):
-            r2 = await ssh.run(f"systemctl is-active {svc} 2>/dev/null", timeout=10)
+            r2 = await self._r(
+                ssh, sec, f"systemctl is-active {svc} 2>/dev/null", timeout=10)
             state = r2.out.strip()
             if state != "active":
                 sec.warn(f"Service {svc}: {state}")

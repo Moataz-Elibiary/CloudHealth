@@ -11,8 +11,9 @@ from pathlib import Path
 from typing import Optional
 from urllib.parse import parse_qs
 
-CACHE_DIR      = Path.home() / ".cloud_health"
-CACHE_FILE     = CACHE_DIR / ".creds_cache"
+USER_DATA_DIR  = Path.home() / "Documents" / "cloud_health"
+CACHE_DIR      = USER_DATA_DIR
+CACHE_FILE     = CACHE_DIR / "credentials.cache"
 SALT_FILE      = CACHE_DIR / ".salt"
 VERSION_FILE   = CACHE_DIR / "version.txt"
 PROGRAM_DIR    = CACHE_DIR / "program"

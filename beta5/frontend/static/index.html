@@ -69,6 +69,33 @@ body{font-family:'Inter',system-ui,sans-serif;background:linear-gradient(135deg,
 .run-btn{width:100%;padding:.9rem;border:none;border-radius:8px;font-size:1rem;font-weight:700;cursor:pointer;background:linear-gradient(135deg,var(--primary),#8b5cf6);color:#fff;transition:opacity .15s,transform .1s;margin-top:.5rem;font-family:'Inter',sans-serif}
 .run-btn:hover:not(:disabled){opacity:.9;transform:translateY(-1px)}
 .run-btn:disabled{opacity:.4;cursor:not-allowed;transform:none}
+.run-btn.secondary{background:transparent;border:1px solid var(--primary);color:var(--text);font-size:.85rem;padding:.65rem;font-weight:600}
+.run-btn.secondary:hover:not(:disabled){background:rgba(99,102,241,.1);transform:none}
+.run-btn.stop{background:linear-gradient(135deg,#ef4444,#b91c1c);margin-top:.4rem}
+.run-btn.stop:hover:not(:disabled){opacity:.9}
+.run-btn.stop.cancelling{background:#7f1d1d;cursor:wait}
+
+/* preflight controls + table */
+.preflight-opts{display:flex;flex-direction:column;gap:.35rem;margin-top:.75rem;padding:.65rem .8rem;background:rgba(15,23,42,.4);border:1px solid var(--glass-b);border-radius:6px}
+.pf-chk{display:flex;align-items:center;gap:.5rem;font-size:.74rem;color:var(--dim);cursor:pointer}
+.pf-chk input{accent-color:var(--primary);cursor:pointer}
+.preflight-panel{background:var(--glass);backdrop-filter:blur(12px);border:1px solid var(--glass-b);border-radius:var(--r);padding:1rem 1.25rem;margin-bottom:1.25rem;display:none}
+.preflight-panel.show{display:block}
+.preflight-panel h3{font-size:.85rem;font-weight:700;margin-bottom:.6rem;color:var(--primary);display:flex;align-items:center;gap:.4rem}
+.preflight-panel .pf-summary{font-size:.74rem;color:var(--dim);margin-bottom:.7rem}
+.preflight-panel .pf-summary.blocked{color:var(--fail);font-weight:600}
+.preflight-table{width:100%;border-collapse:collapse;font-size:.74rem}
+.preflight-table th,.preflight-table td{text-align:left;padding:.4rem .55rem;border-bottom:1px solid var(--glass-b);white-space:nowrap}
+.preflight-table th{font-weight:600;color:var(--dim);text-transform:uppercase;letter-spacing:.04em;font-size:.66rem;background:rgba(15,23,42,.3)}
+.preflight-table tr:last-child td{border-bottom:none}
+.pf-icon{display:inline-block;width:1.05rem;text-align:center}
+.pf-icon.ok{color:var(--pass)} .pf-icon.fail{color:var(--fail)} .pf-icon.muted{color:var(--dim);opacity:.5}
+.pf-status{font-weight:700;font-size:.7rem;padding:.15rem .45rem;border-radius:4px;letter-spacing:.04em}
+.pf-status.ok{background:rgba(34,197,94,.15);color:var(--pass)}
+.pf-status.fail{background:rgba(239,68,68,.15);color:var(--fail)}
+.pf-status.error{background:rgba(245,158,11,.15);color:var(--warn)}
+.pf-detail{color:var(--dim);font-size:.7rem;max-width:24rem;white-space:normal;overflow-wrap:anywhere}
+.pf-ts{font-family:ui-monospace,monospace;font-size:.68rem;color:var(--dim)}
 .save-btn{width:100%;padding:.5rem;border:1px solid var(--primary);border-radius:6px;background:transparent;color:var(--text);font-size:.78rem;font-weight:600;cursor:pointer;transition:all .15s;font-family:'Inter',sans-serif}
 .save-btn:hover{background:rgba(99,102,241,.1)}
 .save-ok{font-size:.72rem;color:var(--pass);margin-top:.3rem;display:none}
@@ -119,6 +146,7 @@ body{font-family:'Inter',system-ui,sans-serif;background:linear-gradient(135deg,
 .pill-pass,.pill-PASS{background:rgba(34,197,94,.18);color:var(--pass)}
 .pill-fail,.pill-FAIL,.pill-error,.pill-ERROR{background:rgba(239,68,68,.18);color:var(--fail)}
 .pill-warn,.pill-WARN{background:rgba(245,158,11,.18);color:var(--warn);color:#111 !important;background:#f59e0b !important}
+.pill-cancelled,.pill-CANCELLED,.pill-cancelling,.pill-CANCELLING,.pill-busy,.pill-BUSY{background:rgba(127,29,29,.5);color:#fca5a5}
 
 /* headline zone */
 .headline{margin:.75rem 1.25rem;padding:.6rem .9rem;background:rgba(15,23,42,.6);border-radius:6px;border-left:3px solid var(--primary);font-family:var(--mono);font-size:.78rem;color:#cbd5e1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
@@ -189,7 +217,13 @@ body{font-family:'Inter',system-ui,sans-serif;background:linear-gradient(135deg,
       <div id="checkGroups">
         <div style="text-align:center;color:var(--dim);padding:2rem 0;font-size:.82rem">Loading checks…</div>
       </div>
+      <div class="preflight-opts">
+        <label class="pf-chk"><input type="checkbox" id="opt_skip_preflight"> Skip pre-flight</label>
+        <label class="pf-chk"><input type="checkbox" id="opt_ignore_failures"> Ignore pre-flight failures and proceed</label>
+      </div>
+      <button class="run-btn secondary" id="preflightBtn">🛫 Run Pre-flight Only</button>
       <button class="run-btn" id="runBtn">🚀 Run Health Check</button>
+      <button class="run-btn stop" id="stopBtn" style="display:none">⏹ Stop</button>
     </div>
 
     <!-- Tab: Config -->
@@ -200,6 +234,11 @@ body{font-family:'Inter',system-ui,sans-serif;background:linear-gradient(135deg,
         <div class="cfg-group"><label class="cfg-label">Max Nodes</label><input class="cfg-input" id="c_max_parallel_nodes" type="number" placeholder="10"></div>
         <div class="cfg-group"><label class="cfg-label">SSH Timeout</label><input class="cfg-input" id="c_ssh_timeout" type="number" placeholder="30"></div>
         <div class="cfg-group"><label class="cfg-label">CMD Timeout</label><input class="cfg-input" id="c_cmd_timeout" type="number" placeholder="60"></div>
+        <div class="cfg-section-label">Backend</div>
+        <div class="cfg-group"><label class="cfg-label">Backend Port</label><input class="cfg-input" id="c_backend_port" type="number" placeholder="8100"></div>
+        <div class="cfg-group"><label class="cfg-label">Heartbeat Timeout</label><input class="cfg-input" id="c_heartbeat_timeout" type="number" placeholder="60"></div>
+        <div class="cfg-section-label">Logging</div>
+        <div class="cfg-group"><label class="cfg-label">Max Log Files</label><input class="cfg-input" id="c_max_log_files" type="number" placeholder="5"></div>
         <div class="cfg-section-label">Thresholds</div>
         <div class="cfg-group"><label class="cfg-label">Disk %</label><input class="cfg-input" id="c_disk_percent" type="number" placeholder="85"></div>
         <div class="cfg-group"><label class="cfg-label">Mem Warn %</label><input class="cfg-input" id="c_mem_warn" type="number" placeholder="80"></div>
@@ -235,6 +274,22 @@ body{font-family:'Inter',system-ui,sans-serif;background:linear-gradient(135deg,
     <div class="banner err" id="errBanner"></div>
     <div class="banner ok"  id="okBanner"></div>
 
+    <!-- Pre-flight panel -->
+    <div class="preflight-panel" id="preflightPanel">
+      <h3>🛫 Pre-flight Validation</h3>
+      <div class="pf-summary" id="preflightSummary"></div>
+      <div style="overflow-x:auto">
+        <table class="preflight-table">
+          <thead><tr>
+            <th>Cluster</th><th>Type</th><th>Bastion</th><th>Timestamp (UTC)</th>
+            <th>Reachable</th><th>Auth</th><th>Python</th><th>Backend Ver</th>
+            <th>Status</th><th>Detail</th>
+          </tr></thead>
+          <tbody id="preflightRows"></tbody>
+        </table>
+      </div>
+    </div>
+
     <!-- Filter bar -->
     <div class="filter-bar">
       <button class="fb active" data-f="all">All</button>
@@ -260,7 +315,7 @@ body{font-family:'Inter',system-ui,sans-serif;background:linear-gradient(135deg,
 const ws = new WebSocket(`ws://${location.host}/ws/ui`);
 
 // ── State ──────────────────────────────────────────────────────────────────
-const state = { clusters:{}, totals:{pass:0,warn:0,fail:0,sections:0,clusters:0}, running:false };
+const state = { clusters:{}, totals:{pass:0,warn:0,fail:0,sections:0,clusters:0}, running:false, cancelling:false };
 let currentFilter = 'all';
 let configData    = {};
 let saveTimer     = null;
@@ -299,17 +354,32 @@ async function init() {
   if(cfg.last_enabled_checks?.length) restoreCheckSelection(cfg.last_enabled_checks, checks);
 }
 
+// Top-level config.yaml keys ↔ input element IDs. Shared by populateConfig
+// (load) and the Save handler so adding a new field only needs one edit.
+const CFG_FIELD_MAP = {
+  c_parallel_limit:     'parallel_limit',
+  c_max_parallel_nodes: 'max_parallel_nodes',
+  c_ssh_timeout:        'ssh_timeout',
+  c_cmd_timeout:        'cmd_timeout',
+  c_backend_port:       'backend_port',
+  c_heartbeat_timeout:  'heartbeat_timeout',
+  c_max_log_files:      'max_log_files',
+  c_output_dir:         'output_dir',
+  c_inventory_file:     'inventory_file',
+};
+const CFG_THRESHOLD_MAP = {
+  c_disk_percent:'disk_percent', c_mem_warn:'mem_warn', c_mem_fail:'mem_fail',
+  c_swap_warn:'swap_warn', c_load_warn:'load_warn', c_load_fail:'load_fail',
+};
+
 function populateConfig(cfg) {
-  const map = {
-    c_parallel_limit:'parallel_limit', c_max_parallel_nodes:'max_parallel_nodes',
-    c_ssh_timeout:'ssh_timeout', c_cmd_timeout:'cmd_timeout',
-    c_output_dir:'output_dir', c_inventory_file:'inventory_file',
-  };
-  Object.entries(map).forEach(([id,key]) => { if(cfg[key]!==undefined && $(id)) $(id).value=cfg[key]; });
+  Object.entries(CFG_FIELD_MAP).forEach(([id,key]) => {
+    if(cfg[key]!==undefined && $(id)) $(id).value=cfg[key];
+  });
   const thr = cfg.thresholds||{};
-  const thrMap = {c_disk_percent:'disk_percent',c_mem_warn:'mem_warn',c_mem_fail:'mem_fail',
-                  c_swap_warn:'swap_warn',c_load_warn:'load_warn',c_load_fail:'load_fail'};
-  Object.entries(thrMap).forEach(([id,key]) => { if(thr[key]!==undefined && $(id)) $(id).value=thr[key]; });
+  Object.entries(CFG_THRESHOLD_MAP).forEach(([id,key]) => {
+    if(thr[key]!==undefined && $(id)) $(id).value=thr[key];
+  });
 }
 
 // ── Render check groups ────────────────────────────────────────────────────
@@ -375,17 +445,12 @@ function restoreCheckSelection(ids, categories) {
 // ── Save config ────────────────────────────────────────────────────────────
 $('saveBtn').onclick = () => {
   $('saveBtn').disabled=true; $('saveBtn').textContent='Saving…';
-  const map={c_parallel_limit:'parallel_limit',c_max_parallel_nodes:'max_parallel_nodes',
-              c_ssh_timeout:'ssh_timeout',c_cmd_timeout:'cmd_timeout',
-              c_output_dir:'output_dir',c_inventory_file:'inventory_file'};
-  Object.entries(map).forEach(([id,key])=>{
+  Object.entries(CFG_FIELD_MAP).forEach(([id,key])=>{
     const el=$(id); if(!el) return;
     configData[key] = el.type==='number' ? (el.step?parseFloat(el.value):parseInt(el.value)) : el.value;
   });
   if(!configData.thresholds) configData.thresholds={};
-  const thrMap={c_disk_percent:'disk_percent',c_mem_warn:'mem_warn',c_mem_fail:'mem_fail',
-                c_swap_warn:'swap_warn',c_load_warn:'load_warn',c_load_fail:'load_fail'};
-  Object.entries(thrMap).forEach(([id,key])=>{
+  Object.entries(CFG_THRESHOLD_MAP).forEach(([id,key])=>{
     const el=$(id); if(!el) return;
     configData.thresholds[key] = el.step?parseFloat(el.value):parseInt(el.value);
   });
@@ -442,6 +507,13 @@ ws.onmessage = ({data}) => {
     case 'complete':       onClusterDone(m);            break;
     case 'error':          showError(m.cluster?`${m.cluster}: ${m.message}`:m.message); break;
     case 'reports_ready':  showReportReady(m);          break;
+    case 'preflight_started': onPreflightStarted(m);    break;
+    case 'preflight_result':  onPreflightResult(m.row); break;
+    case 'preflight_done':    onPreflightDone(m);       break;
+    case 'preflight_blocked': onPreflightBlocked(m);    break;
+    case 'cancel_ack':        onCancelAck(m);           break;
+    case 'cancelling':        onCancellingCluster(m);   break;
+    case 'cancelled':         onClusterCancelled(m);    break;
   }
 };
 
@@ -450,14 +522,40 @@ ws.onerror = () => showError('WebSocket error. Is the server running?');
 function handleRunState(m) {
   if(m.state==='started') {
     state.running=true;
+    state.cancelling=false;
     resetDashboard();
     $('runBtn').disabled=true;
     $('runBtn').textContent='⚙ Running…';
+    $('preflightBtn').disabled=true;
+    const sb=$('stopBtn');
+    sb.style.display='block';
+    sb.disabled=false;
+    sb.textContent='⏹ Stop';
+    sb.classList.remove('cancelling');
   }
-  if(m.state==='finished') {
+  if(m.state==='cancelling') {
+    state.cancelling=true;
+    const sb=$('stopBtn');
+    sb.disabled=true;
+    sb.textContent='Cancelling…';
+    sb.classList.add('cancelling');
+  }
+  if(m.state==='finished' || m.state==='cancelled') {
     state.running=false;
+    state.cancelling=false;
     $('runBtn').disabled=false;
     $('runBtn').textContent='🚀 Run Health Check';
+    $('preflightBtn').disabled=false;
+    const sb=$('stopBtn');
+    sb.style.display='none';
+    sb.disabled=false;
+    sb.textContent='⏹ Stop';
+    sb.classList.remove('cancelling');
+    if(m.state==='cancelled') {
+      const b=$('errBanner');
+      b.textContent='Run cancelled — partial results saved.';
+      b.classList.add('show');
+    }
     applyFilter();
   }
 }
@@ -627,6 +725,61 @@ function showReportReady(m) {
 
 function slug(s) { return (s||'').replace(/[^a-zA-Z0-9]/g,'_'); }
 
+// ── Pre-flight rendering ──────────────────────────────────────────────────
+function resetPreflightPanel() {
+  $('preflightRows').innerHTML = '';
+  $('preflightSummary').textContent = '';
+  $('preflightSummary').classList.remove('blocked');
+  $('preflightPanel').classList.remove('show');
+}
+function onPreflightStarted(m) {
+  resetPreflightPanel();
+  $('preflightPanel').classList.add('show');
+  $('preflightSummary').textContent =
+    `Validating ${m.total} cluster(s) — started ${m.started_at}`;
+}
+function onPreflightResult(row) {
+  $('preflightPanel').classList.add('show');
+  const tbody = $('preflightRows');
+  const tr = document.createElement('tr');
+  tr.dataset.cluster = row.cluster_name;
+  const ok   = '<span class="pf-icon ok">✓</span>';
+  const fail = '<span class="pf-icon fail">✕</span>';
+  const dash = '<span class="pf-icon muted">–</span>';
+  const reach = row.reachable    ? ok : fail;
+  const auth  = row.auth_ok      ? ok : (row.reachable ? fail : dash);
+  const py    = row.python_ready ? ok : (row.auth_ok   ? fail : dash);
+  const ver   = row.backend_version || '<span class="pf-icon muted">none</span>';
+  const stCls = row.status === 'OK' ? 'ok' : row.status === 'FAIL' ? 'fail' : 'error';
+  tr.innerHTML = `
+    <td>${esc(row.cluster_name)}</td>
+    <td>${esc(row.cluster_type||'')}</td>
+    <td>${esc(row.installer_ip||'')}</td>
+    <td class="pf-ts">${esc(row.timestamp||'')}</td>
+    <td>${reach}</td>
+    <td>${auth}</td>
+    <td>${py}${row.python_version?` <span class="pf-detail">${esc(row.python_version)}</span>`:''}</td>
+    <td>${ver}</td>
+    <td><span class="pf-status ${stCls}">${esc(row.status)}</span></td>
+    <td class="pf-detail">${esc(row.error||'')}</td>`;
+  // Replace existing row for the same cluster if present (idempotent)
+  const existing = tbody.querySelector(`tr[data-cluster="${CSS.escape(row.cluster_name)}"]`);
+  if(existing) existing.replaceWith(tr); else tbody.appendChild(tr);
+}
+function onPreflightDone(m) {
+  const failed = m.rows.filter(r => r.status !== 'OK').length;
+  const total  = m.rows.length;
+  $('preflightSummary').textContent = m.all_ok
+    ? `All ${total} cluster(s) ready.`
+    : `${failed} of ${total} cluster(s) failed pre-flight.`;
+  $('preflightSummary').classList.toggle('blocked', !m.all_ok);
+}
+function onPreflightBlocked(m) {
+  $('preflightSummary').textContent = m.message;
+  $('preflightSummary').classList.add('blocked');
+  showError(m.message);
+}
+
 // ── Run ────────────────────────────────────────────────────────────────────
 $('runBtn').onclick = () => {
   if(state.running) return;
@@ -636,10 +789,66 @@ $('runBtn').onclick = () => {
   }
   $('errBanner').classList.remove('show');
   $('okBanner').classList.remove('show');
-  const enabledChecks = [...document.querySelectorAll('.chk-opt:checked')].map(c=>c.value);
-  ws.send(JSON.stringify({action:'start_all', enabled_checks: enabledChecks}));
+  resetPreflightPanel();
+  const enabledChecks   = [...document.querySelectorAll('.chk-opt:checked')].map(c=>c.value);
+  const skipPreflight   = $('opt_skip_preflight').checked;
+  const ignoreFailures  = $('opt_ignore_failures').checked;
+  ws.send(JSON.stringify({
+    action:           'start_all',
+    enabled_checks:   enabledChecks,
+    skip_preflight:   skipPreflight,
+    ignore_failures:  ignoreFailures,
+  }));
   $('runBtn').disabled = true;
 };
+
+$('preflightBtn').onclick = () => {
+  if(state.running) return;
+  if(ws.readyState !== WebSocket.OPEN) {
+    showError('WebSocket not connected. Refresh the page.');
+    return;
+  }
+  $('errBanner').classList.remove('show');
+  $('okBanner').classList.remove('show');
+  resetPreflightPanel();
+  ws.send(JSON.stringify({action:'preflight'}));
+  $('preflightBtn').disabled = true;
+};
+
+$('stopBtn').onclick = () => {
+  if(!state.running || state.cancelling) return;
+  if(ws.readyState !== WebSocket.OPEN) return;
+  if(!confirm('Stop the current diagnostics run? Partial results will be saved.')) return;
+  state.cancelling = true;
+  const sb = $('stopBtn');
+  sb.disabled = true;
+  sb.textContent = 'Cancelling…';
+  sb.classList.add('cancelling');
+  ws.send(JSON.stringify({action:'cancel'}));
+};
+
+function onCancelAck(m) {
+  if(!m.running) {
+    state.cancelling = false;
+    const sb = $('stopBtn');
+    sb.style.display = 'none';
+    sb.disabled = false;
+    sb.textContent = '⏹ Stop';
+    sb.classList.remove('cancelling');
+  }
+}
+
+function onCancellingCluster(m) {
+  if(m.cluster) updatePill(m.cluster, 'CANCELLING');
+}
+
+function onClusterCancelled(m) {
+  if(m.cluster) updatePill(m.cluster, 'CANCELLED');
+  if(m.summary) {
+    state.totals.clusters++;
+    updateScoreboard();
+  }
+}
 
 // ── Boot ───────────────────────────────────────────────────────────────────
 init();

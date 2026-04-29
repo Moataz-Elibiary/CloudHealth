@@ -182,6 +182,34 @@ For host checks, CloudHealth additionally connects to each physical host listed 
 
 Nothing is installed permanently on your clusters. Diagnostics are scoped to the run that triggered them, and credentials never leave the machines that need them — your laptop only ever holds the credentials for the cluster bastions you've configured.
 
+### Three-tier SSH architecture
+
+CloudHealth uses a three-tier architecture to reach compute and storage nodes without exposing direct access from your laptop:
+
+```
+┌─────────────────┐    1× SSH tunnel     ┌─────────────────┐    N× parallel SSH   ┌──────────────┐
+│  User's laptop  │ ─── per cluster ───→ │  Bastion (per   │ ──── sessions ─────→ │  Compute /   │
+│   (frontend)    │ ←── WS over tunnel ─ │   cluster)      │ ←── (results) ─────── │  storage     │
+│                 │                      │  + backend.py   │                      │  hosts       │
+└─────────────────┘                      └─────────────────┘                      └──────────────┘
+```
+
+**How it works:**
+
+1. **Tier 1 (Laptop → Bastion):** You connect once per cluster to its bastion / installer node. This connection stays open for the entire run and uses the credentials from your inventory file. Results stream back via WebSocket.
+
+2. **Tier 2 (Bastion → Compute/Storage):** The bastion runs the backend Python engine, which initiates parallel SSH connections *from the bastion* to each physical host. These connections use host-specific credentials (if provided in the inventory) or fall back to the bastion credentials. All host diagnostics run on the bastion side.
+
+3. **Tier 3 (Per-node checks):** Once connected to a host, multiple checks run concurrently on a single SSH session. For example, CPU, memory, disk, and NTP checks all run in parallel without needing separate connections.
+
+**Concurrency control has three layers:**
+
+- **Parallel Limit** — Controls how many clusters are checked simultaneously from your laptop (1× SSH tunnel per cluster)
+- **Max Nodes** — Controls how many physical hosts are checked in parallel per cluster (N× SSH from bastion)
+- **Per-node checks** — All checks for a single host run concurrently on its SSH connection (unbounded)
+
+No scripts are installed on compute nodes. All diagnostics use one-off commands executed via SSH, with output parsed and returned to the bastion for formatting and streaming back to your browser.
+
 ---
 
 ## Troubleshooting
