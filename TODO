@@ -103,7 +103,7 @@ These items from the earlier plan are confirmed complete in beta5 and excluded f
 - Add "Stop" button to `frontend/static/index.html`, visible only when run is active
 - New WebSocket action `cancel` from UI → frontend
 - Frontend cancels `_RUN_TASK` on each cluster, sends `cancel` action over the SSH-tunneled WebSocket to each bastion backend
-- Backend cancels its `_RUN_TASK`, releases lock, kills any in-flight SSH sessions per cluster
+- Backend cancels its `_RUN_TASK`, releases lock; in-flight SSH sessions from the bastion to cluster nodes are torn down naturally as coroutines unwind — no explicit kill step needed
 - **Partial results saved to history DB with `status='CANCELLED'`** per design decision 4 (when P3.1 lands; until then, save to `results.json` with cancelled marker)
 - Frontend tunnel manager closes all tunnels on cancel
 - Test partial-state cleanup: cancel during SFTP push, during check execution, during cleanup
@@ -137,8 +137,7 @@ These items from the earlier plan are confirmed complete in beta5 and excluded f
 - Schema:
   - `runs(id PK, run_id, user, started_at, finished_at, cluster_count, status, source ENUM[ui,cli,scheduled,dry_run])`
   - `cluster_results(run_id FK, cluster_name, cluster_type, pass_count, fail_count, warn_count, duration_s, status, login_success)`
-  - `check_results(run_id FK, cluster_name, section, check_id, status, message, detail, command)`
-  - `schedules(id PK, cluster_name, cron_expr, enabled, last_run, next_run)` — placeholder for P5.2
+  - `check_results(run_id FK, cluster_name, section_name, message_index, status, message, detail, command)` — natural key: `(run_id, cluster_name, section_name, message_index)`
 - Write on every completed run (including cancelled) in a single transaction
 - **Pruning policy:** retain last `history_max_runs` runs per design decision 3
 - Add `history_max_runs: 200` to `config.yaml` with comment explaining the variable
@@ -150,18 +149,16 @@ These items from the earlier plan are confirmed complete in beta5 and excluded f
 
 ---
 
-### 🟠 P3.2 — "View last results" prompt + History tab
+### 🟠 P3.2 — History tab
 **Why high:** Direct user request from the original 14 items. Pairs naturally with P3.1.
 
 **Tasks:**
-- On Run button click: query `/api/history?limit=1` → if last run was within N minutes (configurable via `last_run_prompt_minutes` in config.yaml, default 5), show modal:
-  - "Last run was 3 minutes ago by `username`. View those results / Run again / Run only failed clusters from last run"
 - Add "History" tab to sidebar showing last 30 runs (timestamp, user, cluster count, P/F/W counts, status icon including CANCELLED)
 - Click any historical run → renders the report from saved data without re-running
 - "Run only failed clusters" pre-selects clusters from the last run that had `fail_count > 0` (depends on P2.2 per-cluster selection — note P2.2 was renumbered, see Execution Order table)
 - Standalone "View History" entry point — useful when user just wants to check yesterday's results
 
-**Files affected:** `frontend/static/index.html`, `frontend/app.py`, `frontend/core/reporter_html.py`, `config/config.yaml`
+**Files affected:** `frontend/static/index.html`, `frontend/app.py`, `frontend/core/reporter_html.py`
 
 ---
 
@@ -174,7 +171,6 @@ These items from the earlier plan are confirmed complete in beta5 and excluded f
 - Add "What's Changed" banner at top of report: "3 new failures since [previous run timestamp], 1 resolved, 2 new warnings"
 - Highlight new-failure rows with visual indicator (red border + "NEW" badge)
 - Highlight resolved rows with strikethrough + "RESOLVED" badge in a separate "Resolved" section
-- Export comparison summary in plain text for easy sharing (feeds into P4.1)
 
 **Files affected:** `frontend/core/reporter_html.py`, `frontend/core/history_db.py`
 
@@ -185,11 +181,9 @@ These items from the earlier plan are confirmed complete in beta5 and excluded f
 
 **Tasks:**
 - Add cluster list with checkboxes to frontend sidebar (load from new `/api/inventory` endpoint)
-- Sub-expansion per cluster showing nodes (from inventory or auto-discovered) with checkboxes
-- New WebSocket payload field `selected_clusters: [name1, name2]` and `selected_nodes: {cluster: [ip1, ip2]}`
-- Backend's `CheckRunner` honours node subset filter when discovering nodes
+- New WebSocket payload field `selected_clusters: [name1, name2]`
 - "Select all" / "Select failures from last run" / "Select cancelled clusters from last run" quick actions (the latter two depend on P3.1)
-- Persist last selection in `config.yaml` under `last_selected_clusters` and `last_selected_nodes`
+- Persist last selection in `config.yaml` under `last_selected_clusters`
 
 **Files affected:** `frontend/static/index.html`, `frontend/app.py`, `backend/check_runner.py`, new endpoint `/api/inventory`, `config/config.yaml`
 
@@ -208,28 +202,23 @@ These items from the earlier plan are confirmed complete in beta5 and excluded f
   - Top failures list (max 10): cluster — reason
   - Diff section if available (from P3.3): "X new failures since previous run"
 - Add "Copy as HTML" variant for richer paste into email
-- Optional redacted mode that strips IPs/hostnames for external sharing
 - Use clipboard API; fallback to textarea + select for older browsers
 
 **Files affected:** `frontend/core/reporter_html.py`, JS in report HTML template
 
 ---
 
-### 🟡 P4.2 — Dry-run / canary test mode
-**Why medium:** Safety feature for validating new backend versions before fleet-wide rollout.
+### 🟡 P4.2 — Dry-run (view last results without running)
+**Why medium:** Lets operators review the most recent health status without triggering a new check run — useful for quick status reviews or during maintenance windows.
 
 **Tasks:**
-- Add `canary` boolean column to inventory schema
-- New "Dry Run" button (separate from "Run Health Check")
-- Pushes backend to `/tmp/cloud_health_test/` instead of `/tmp/cloud_health/`
-- Starts backend on different port (`backend_port + 1000`)
-- Runs only against clusters tagged `canary`
-- Stores results in DB with `source='dry_run'`
-- Compares against last production run for same canary clusters (via P3.3 diff logic)
-- Reports: any new errors? Any check returning differently? Promote or roll back
-- "Promote" button — removes the test directory and confirms next real run uses the new version
+- New "Dry Run" button in the UI (distinct from "Run Health Check")
+- Loads and renders the most recent results from the history DB without contacting any bastion
+- Report view clearly labeled "Dry Run — showing results from [last run timestamp]"
+- No bastion writes, no SSH, no lock acquisition — purely a DB read and render
+- Stores the view event in DB with `source='dry_run'` for audit trail
 
-**Files affected:** `frontend/static/index.html`, `frontend/app.py`, `backend/engine/inventory.py`, `frontend/core/history_db.py`
+**Files affected:** `frontend/static/index.html`, `frontend/app.py`, `frontend/core/history_db.py`
 
 ---
 
@@ -242,7 +231,7 @@ These items from the earlier plan are confirmed complete in beta5 and excluded f
 - New entry point in existing `main.py`: `cloudhealth run --clusters prod-east --checks etcd,nodes --output json --no-browser`
 - Reuses existing backend orchestration code (no frontend HTTP/browser)
 - Outputs JSON to stdout for piping
-- Exit codes: 0 = all pass, 1 = any warnings, 2 = any failures, 3 = any errors
+- Exit codes: 0 = all pass, 1 = any warnings, 2 = any failures or errors
 - `--quiet` flag for minimal output (just exit code)
 - `--diff` flag to compare against last run from history DB
 - CLI runs are written to history DB with `source='cli'` (per P3.1 schema)
@@ -304,11 +293,11 @@ These aren't standalone tickets but standards to enforce on each task:
 | 4 | 🟠 P2.2 | Bug carry-overs (lock query, host log, backend log readback) | Small-Medium |
 | 5 | 🟠 P2.1 | Cancel/Stop button (with cancelled status saved) | Medium |
 | 6 | 🟠 P3.1 | SQLite history DB (config-driven retention) | Medium |
-| 7 | 🟠 P3.2 | View-last-results + History tab | Medium |
+| 7 | 🟠 P3.2 | History tab | Medium |
 | 8 | 🟠 P3.3 | Diff-from-last-run highlighting | Medium |
-| 9 | 🟠 P3.4 | Per-cluster/per-node selection | Medium-Large |
+| 9 | 🟠 P3.4 | Per-cluster selection | Medium |
 | 10 | 🟡 P4.1 | Copy summary report | Small |
-| 11 | 🟡 P4.2 | Dry-run / canary mode | Medium-Large |
+| 11 | 🟡 P4.2 | Dry-run / view last results | Small |
 | 12 | 🟡 P5.1 | CLI mode | Medium |
 | 13 | 🟢 P5.2 | Scheduled runs | Large |
 
