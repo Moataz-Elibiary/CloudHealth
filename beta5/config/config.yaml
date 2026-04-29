@@ -17,6 +17,9 @@ heartbeat_timeout:  60     # seconds of silence before backend self-terminates
 # ── Logging ───────────────────────────────────────────────────────────────────
 max_log_files:      5      # historical log files to keep per type (frontend + bastion)
 
+# ── History ───────────────────────────────────────────────────────────────────
+history_max_runs:   200    # number of past runs to retain in ~/Documents/cloud_health/db/history.db
+
 # ── Paths ─────────────────────────────────────────────────────────────────────
 output_dir:     ./outputs/
 inventory_file: ./inventory.xlsx

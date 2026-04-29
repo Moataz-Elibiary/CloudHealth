@@ -33,6 +33,7 @@ from core.ws_proxy      import WSProxy
 from core.reporter_html import HTMLReporter
 from core.result        import ClusterResult
 from core.preflight     import run_preflight, PreflightResult
+from core               import history_db
 
 # Frontend logger — emits to stderr only; no log files are written on the
 # user's machine. All persistent logs live on the bastion side.
@@ -213,6 +214,37 @@ async def api_version():
     return {"version": ver}
 
 
+@app.get("/api/history")
+async def api_history(limit: int = 30):
+    history_db.init_db()
+    return {"runs": history_db.get_runs(limit=min(limit, 200))}
+
+
+@app.get("/api/history/{run_id}")
+async def api_history_run(run_id: str):
+    history_db.init_db()
+    run = history_db.get_run(run_id)
+    if not run:
+        from fastapi.responses import JSONResponse
+        return JSONResponse(status_code=404, content={"error": "run not found"})
+    return run
+
+
+@app.get("/api/inventory")
+async def api_inventory():
+    config_path = _resolve_config_path()
+    loader = ConfigLoader(str(config_path))
+    try:
+        app_settings = loader.get_app_settings()
+        clusters = loader.load_inventory(app_settings.inventory_file or "inventory.xlsx")
+        return {"clusters": [
+            {"name": c.name, "type": getattr(c, "type", ""), "environment": getattr(c, "environment", "")}
+            for c in clusters
+        ]}
+    except Exception as e:
+        return {"clusters": [], "error": str(e)}
+
+
 # ── WebSocket UI endpoint ─────────────────────────────────────────────────────
 
 @app.websocket("/ws/ui")
@@ -234,10 +266,12 @@ async def ui_websocket(websocket: WebSocket):
                 enabled          = message.get("enabled_checks")
                 skip_preflight   = bool(message.get("skip_preflight", False))
                 ignore_failures  = bool(message.get("ignore_failures", False))
+                selected_clusters = message.get("selected_clusters")  # None = all
                 active_run = asyncio.create_task(
                     _run_guarded(websocket, enabled,
                                  skip_preflight=skip_preflight,
-                                 ignore_failures=ignore_failures))
+                                 ignore_failures=ignore_failures,
+                                 selected_clusters=selected_clusters))
             elif action == "preflight":
                 if active_run and not active_run.done():
                     await _safe_send(websocket, {
@@ -301,7 +335,8 @@ async def _request_cancel(ui_ws: WebSocket):
 
 async def _run_guarded(ui_ws: WebSocket, enabled_checks,
                         skip_preflight: bool = False,
-                        ignore_failures: bool = False):
+                        ignore_failures: bool = False,
+                        selected_clusters: Optional[List[str]] = None):
     global CANCEL_REQUESTED
     if RUN_LOCK.locked():
         await _safe_send(ui_ws, {
@@ -328,7 +363,7 @@ async def _run_guarded(ui_ws: WebSocket, enabled_checks,
                                     f"failures and proceed anyway' to override."),
                     })
                     return
-            await _run_all_clusters(ui_ws, enabled_checks)
+            await _run_all_clusters(ui_ws, enabled_checks, selected_clusters=selected_clusters)
         except asyncio.CancelledError:
             raise
         except Exception as exc:
@@ -416,7 +451,11 @@ async def _run_preflight_phase(ui_ws: WebSocket):
     return rows
 
 
-async def _run_all_clusters(ui_ws: WebSocket, enabled_checks=None):
+async def _run_all_clusters(
+    ui_ws:             WebSocket,
+    enabled_checks=None,
+    selected_clusters: Optional[List[str]] = None,
+):
     global LAST_RESULTS, LATEST_REPORT_PATH, CANCEL_REQUESTED
     LAST_RESULTS        = []
     LATEST_REPORT_PATH  = None
@@ -424,9 +463,6 @@ async def _run_all_clusters(ui_ws: WebSocket, enabled_checks=None):
     ACTIVE_BACKEND_WS.clear()
     ACTIVE_TUNNELS.clear()
 
-    # Generate correlation IDs for this run — propagated to the bastion
-    # backend so its logs can be correlated, but never persisted on the
-    # user's machine.
     run_id  = str(uuid.uuid4())
     try:
         user_id = os.getlogin()
@@ -435,11 +471,16 @@ async def _run_all_clusters(ui_ws: WebSocket, enabled_checks=None):
 
     log.info("Run started — clusters initialising")
 
-    config_path = ROOT_DIR / "config" / "config.yaml"
-    if not config_path.exists():
-        config_path = ROOT_DIR / "config.yaml"
-    loader      = ConfigLoader(str(config_path))
+    config_path  = _resolve_config_path()
+    loader       = ConfigLoader(str(config_path))
     app_settings = loader.get_app_settings()
+
+    # Read history_max_runs directly from raw config (frontend-only knob).
+    try:
+        _raw_cfg = yaml.safe_load(config_path.read_text()) or {}
+        history_max_runs = int(_raw_cfg.get("history_max_runs", 200))
+    except Exception:
+        history_max_runs = 200
 
     if enabled_checks is not None:
         app_settings.enabled_checks = set(enabled_checks)
@@ -454,6 +495,11 @@ async def _run_all_clusters(ui_ws: WebSocket, enabled_checks=None):
             "message": f"Inventory load failed for '{inventory_name}': {e}",
         })
         return
+
+    # P3.4 — filter to selected clusters if the UI sent a non-empty list
+    if selected_clusters:
+        selected_set = set(selected_clusters)
+        clusters = [c for c in clusters if c.name in selected_set]
 
     if not clusters:
         log.warning("No enabled clusters found in '%s'", inventory_name)
@@ -482,24 +528,42 @@ async def _run_all_clusters(ui_ws: WebSocket, enabled_checks=None):
     tasks = [_run_with_sem(sem, ui_ws, c, app_settings, output_dir, run_id, user_id)
              for c in clusters]
     raw_results = await asyncio.gather(*tasks, return_exceptions=True)
-    results = []
-    for r in raw_results:
-        if isinstance(r, Exception):
-            continue
-        if r:
-            results.append(r)
+    results = [r for r in raw_results if r and not isinstance(r, Exception)]
     LAST_RESULTS = results
 
-    elapsed = (datetime.now() - run_start).total_seconds()
+    run_end   = datetime.now()
+    elapsed   = (run_end - run_start).total_seconds()
     cancelled = CANCEL_REQUESTED
+    run_status = "CANCELLED" if cancelled else "COMPLETED"
     log.info("All clusters %s in %.1fs — %d result(s) collected",
-             "cancelled" if cancelled else "finished", elapsed, len(results))
+             run_status.lower(), elapsed, len(results))
+
+    # P3.1 — persist to history DB
+    history_db.init_db()
+    if results:
+        history_db.write_run(
+            run_id=run_id, user=user_id,
+            started_at=run_start, finished_at=run_end,
+            results=results, status=run_status,
+            source="ui", max_runs=history_max_runs,
+        )
 
     if results:
-        reporter     = HTMLReporter([ClusterResult.from_dict(r) for r in results],
-                                    output_dir)
-        report_path  = reporter.generate()
-        email_path   = reporter.generate_email()
+        # P3.3 — build diff_data: {cluster_name: {(section, idx): prev_status}}
+        diff_data: dict = {}
+        for r in results:
+            cname = r.get("cluster_name", "")
+            prev = history_db.get_previous_checks(cname, run_id)
+            if prev:
+                diff_data[cname] = prev
+
+        reporter = HTMLReporter(
+            [ClusterResult.from_dict(r) for r in results],
+            output_dir,
+            diff_data=diff_data if diff_data else None,
+        )
+        report_path        = reporter.generate()
+        _                  = reporter.generate_email()
         LATEST_REPORT_PATH = str(report_path.resolve())
         log.info("Report generated: %s", LATEST_REPORT_PATH)
         await _safe_send(ui_ws, {
@@ -508,26 +572,6 @@ async def _run_all_clusters(ui_ws: WebSocket, enabled_checks=None):
             "count":     len(results),
             "cancelled": cancelled,
         })
-
-    if cancelled:
-        # Persist a CANCELLED marker alongside the partial results so the
-        # history DB writer (P3.1) can ingest the same payload later.
-        try:
-            user_data_dir = Path.home() / "Documents" / "cloud_health"
-            user_data_dir.mkdir(parents=True, exist_ok=True)
-            (user_data_dir / "last_run_cancelled.json").write_text(
-                json.dumps({
-                    "run_id":  run_id,
-                    "user":    user_id,
-                    "started": run_start.isoformat(),
-                    "ended":   datetime.now().isoformat(),
-                    "status":  "CANCELLED",
-                    "results": results,
-                }, default=str),
-                encoding="utf-8",
-            )
-        except Exception as e:
-            log.warning("Cancelled-run marker write failed: %s", e)
 
 
 async def _run_with_sem(sem, ui_ws, cluster, app_settings, output_dir, run_id, user_id):

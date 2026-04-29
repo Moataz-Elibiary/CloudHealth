@@ -136,7 +136,7 @@ These items from the earlier plan are confirmed complete in beta5 and excluded f
 
 ### 🟠 P3.1 — SQLite run history database
 **Why high:** Single most valuable feature in the entire backlog. Unlocks diff reporting, "view last run", trend analysis, scheduled runs, and any future alerting. Cost is small (~200 lines of code), value is huge.
-**Status: NOT STARTED** — no `history_db.py`, no schema, no `/api/history` endpoints, `history_max_runs` missing from config
+**Status: ✅ DONE** — `frontend/core/history_db.py` with WAL SQLite, full schema, pruning; wired into `_run_all_clusters`; `/api/history` and `/api/history/{run_id}` endpoints; `history_max_runs: 200` in config
 
 **Tasks:**
 - New module `frontend/core/history_db.py`
@@ -158,7 +158,7 @@ These items from the earlier plan are confirmed complete in beta5 and excluded f
 
 ### 🟠 P3.2 — History tab
 **Why high:** Direct user request from the original 14 items. Pairs naturally with P3.1.
-**Status: NOT STARTED** — depends on P3.1; no tab, no historical run view
+**Status: ✅ DONE** — "History" tab in sidebar; loads last 30 runs from `/api/history`; click any run shows per-cluster P/F/W summary panel; lazy-loads on first tab activation
 
 **Tasks:**
 - Add "History" tab to sidebar showing last 30 runs (timestamp, user, cluster count, P/F/W counts, status icon including CANCELLED)
@@ -172,7 +172,7 @@ These items from the earlier plan are confirmed complete in beta5 and excluded f
 
 ### 🟠 P3.3 — Diff-from-last-run highlighting in report
 **Why high:** Direct user request. The "killer demo" feature — turns one-shot diagnostic into operational monitoring.
-**Status: NOT STARTED** — depends on P3.1; no diff logic in reporter
+**Status: ✅ DONE** — `reporter_html.py` accepts `diff_data`; NEW badge (red) on new failures/warnings; RESOLVED badge + strikethrough in collapsible "Resolved" subsection; "What's Changed" banner at top of report; diff built in `_run_all_clusters` via `history_db.get_previous_checks`
 
 **Tasks:**
 - On report generation, query DB for previous successful run's results for each cluster (skip cancelled runs as comparison baseline)
@@ -187,7 +187,7 @@ These items from the earlier plan are confirmed complete in beta5 and excluded f
 
 ### 🟠 P3.4 — Per-cluster selection
 **Why high:** Renumbered from P2.2 in v1, moved here because the "rerun failed clusters" quick action depends on history DB (P3.1) being in place first.
-**Status: NOT STARTED** — no cluster checkboxes, no `/api/inventory` endpoint, no `selected_clusters` in WebSocket payload
+**Status: ✅ DONE** — `/api/inventory` endpoint; cluster checkboxes with type badges in sidebar; "All / None / Failed" quick actions; `selected_clusters` sent in `start_all` payload and filtered in `_run_all_clusters`; "Failed" button activates after a run with failures
 
 **Tasks:**
 - Add cluster list with checkboxes to frontend sidebar (load from new `/api/inventory` endpoint)
