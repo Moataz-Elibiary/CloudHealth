@@ -36,6 +36,7 @@ if VENDOR_DIR.exists():
 sys.path.insert(0, str(BACKEND_DIR))
 
 from check_runner import CheckRunner
+import history_db
 
 
 # ── Per-run log context (run_id + user stamped on every line) ─────────────────
@@ -258,16 +259,20 @@ async def _broadcast(message: dict, *, record: bool = True):
 async def _run_checks_task(config: dict, subscriber_queue: asyncio.Queue):
     global _CHECKS_RUNNING, _LAST_RESULT, _RUN_TASK, _ACTIVE_RUNNER, \
            _LAST_ACTIVITY, _HEARTBEAT_TIMEOUT
-    _RUN_CONTEXT.run_id = config.get("run_id", "-")
-    _RUN_CONTEXT.user   = config.get("user_id", "-")
+    run_id   = config.get("run_id", "")
+    user_id  = config.get("user_id", "")
+    _RUN_CONTEXT.run_id = run_id or "-"
+    _RUN_CONTEXT.user   = user_id or "-"
     log = logging.getLogger("cloud_health.run")
     log.info("Run started")
-    runner = None
+    runner   = None
+    run_start = datetime.now()
     try:
         app_settings = config.get("app", {})
         ht = app_settings.get("heartbeat_timeout")
         if isinstance(ht, (int, float)):
             _HEARTBEAT_TIMEOUT = float(ht)
+        max_runs = int(app_settings.get("history_max_runs", 200))
 
         async def on_headline(msg: str):
             await _broadcast({"type": "headline", "message": msg})
@@ -283,24 +288,45 @@ async def _run_checks_task(config: dict, subscriber_queue: asyncio.Queue):
             subscriber_queue = subscriber_queue,
         )
         _ACTIVE_RUNNER = runner
-        result  = await runner.run()
-        summary = result.to_dict()
+        result   = await runner.run()
+        summary  = result.to_dict()
+        run_end  = datetime.now()
         _LAST_RESULT = summary
         _write_results(summary)
-        await _broadcast({"type": "all_done", "summary": summary}, record=False)
+
+        # Persist to bastion-local history DB
+        history_db.write_run(run_id, user_id, run_start, run_end,
+                             summary, "COMPLETED", "ui", max_runs)
+        prev_checks      = history_db.get_previous_checks(
+                               summary.get("cluster_name", ""), run_id)
+        history_snapshot = history_db.get_runs(30)
+
+        await _broadcast({
+            "type":             "all_done",
+            "summary":          summary,
+            "prev_checks":      prev_checks,
+            "history_snapshot": history_snapshot,
+        }, record=False)
         _LAST_ACTIVITY = time.monotonic()
     except asyncio.CancelledError:
-        # User-initiated cancel — snapshot whatever the runner produced so far
-        # and write it out with status='CANCELLED'. The history DB (P3.1) will
-        # later persist this same payload via the same write path.
         log.info("Run cancelled — saving partial results")
         summary = _snapshot_partial_summary(runner)
+        run_end = datetime.now()
         if summary is not None:
             summary["overall_status"] = "CANCELLED"
             _LAST_RESULT = summary
             _write_results(summary)
-            await _broadcast(
-                {"type": "cancelled", "summary": summary}, record=False)
+            history_db.write_run(run_id, user_id, run_start, run_end,
+                                 summary, "CANCELLED", "ui", max_runs)
+            prev_checks      = history_db.get_previous_checks(
+                                   summary.get("cluster_name", ""), run_id)
+            history_snapshot = history_db.get_runs(30)
+            await _broadcast({
+                "type":             "cancelled",
+                "summary":          summary,
+                "prev_checks":      prev_checks,
+                "history_snapshot": history_snapshot,
+            }, record=False)
         else:
             await _broadcast({"type": "cancelled"}, record=False)
         raise
@@ -357,6 +383,7 @@ async def _heartbeat_monitor():
 
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
+    history_db.init_db()
     monitor = asyncio.create_task(_heartbeat_monitor())
     try:
         yield
@@ -470,6 +497,23 @@ async def websocket_endpoint(websocket: WebSocket):
                 await websocket.send_json({"type": "checks_started"})
                 _RUN_TASK = asyncio.create_task(
                     _run_checks_task(config, sub_queue))
+                continue
+
+            # ── History queries ───────────────────────────────────────────────
+            if action == "get_history":
+                limit = int(message.get("limit", 30))
+                await websocket.send_json({
+                    "type": "history",
+                    "runs": history_db.get_runs(min(limit, 200)),
+                })
+                continue
+
+            if action == "get_history_run":
+                rid = message.get("run_id", "")
+                await websocket.send_json({
+                    "type": "history_run",
+                    "run":  history_db.get_run(rid),
+                })
                 continue
 
             # ── Cancel ────────────────────────────────────────────────────────

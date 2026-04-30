@@ -157,6 +157,7 @@ class AppSettings:
     enabled_checks:    Optional[Set[str]] = None
     verbose:           bool  = False
     max_log_files:     int   = 5
+    history_max_runs:  int   = 200
 
     @classmethod
     def from_dict(cls, data: dict) -> "AppSettings":
@@ -179,6 +180,7 @@ class AppSettings:
             enabled_checks    = set(ec) if ec else None,
             verbose           = data.get("verbose",            False),
             max_log_files     = data.get("max_log_files",      5),
+            history_max_runs  = data.get("history_max_runs",   200),
         )
 
     def to_dict(self) -> dict:
@@ -201,6 +203,7 @@ class AppSettings:
             "enabled_checks":    sorted(self.enabled_checks) if self.enabled_checks else None,
             "verbose":           self.verbose,
             "max_log_files":     self.max_log_files,
+            "history_max_runs":  self.history_max_runs,
         }
 
 
