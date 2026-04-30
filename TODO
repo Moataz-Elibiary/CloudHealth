@@ -283,6 +283,10 @@ These items from the earlier plan are confirmed complete in beta5 and excluded f
 - Add Performce KPI report from history DB and cluster prometheus KPIs.
 - Update the README file with all files hierarichal structure everywhere (on source server, bastion server, user Documents, ...)
 - Need to confirm that any change in the test cases (add/remove test case) will have no impact on the program (UI, DB, ...)
+- Need to update comments all over the code, put some diagrams in Readme, remove all beta# and keep it as beta.
+- Create one /dependency folder, that contains all dependencies for frontend (same as backend) so user will just need to have python3 installed
+
+
 
 ---
 
