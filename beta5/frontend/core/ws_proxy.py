@@ -104,23 +104,39 @@ class WSProxy:
 
                             # Run complete
                             if mtype == "all_done":
-                                summary = data.get("summary") or data.get("results")
+                                summary          = data.get("summary") or data.get("results")
+                                prev_checks      = data.get("prev_checks", [])
+                                history_snapshot = data.get("history_snapshot", [])
                                 await ui_ws.send_json({
-                                    "type":    "complete",
-                                    "cluster": cluster_name,
-                                    "summary": summary,
+                                    "type":             "complete",
+                                    "cluster":          cluster_name,
+                                    "summary":          summary,
+                                    "prev_checks":      prev_checks,
+                                    "history_snapshot": history_snapshot,
                                 })
-                                return summary
+                                return {
+                                    "summary":          summary,
+                                    "prev_checks":      prev_checks,
+                                    "history_snapshot": history_snapshot,
+                                }
 
                             # Cancel acknowledged + final partial summary
                             if mtype == "cancelled":
-                                summary = data.get("summary")
+                                summary          = data.get("summary")
+                                prev_checks      = data.get("prev_checks", [])
+                                history_snapshot = data.get("history_snapshot", [])
                                 await ui_ws.send_json({
-                                    "type":    "cancelled",
-                                    "cluster": cluster_name,
-                                    "summary": summary,
+                                    "type":             "cancelled",
+                                    "cluster":          cluster_name,
+                                    "summary":          summary,
+                                    "prev_checks":      prev_checks,
+                                    "history_snapshot": history_snapshot,
                                 })
-                                return summary
+                                return {
+                                    "summary":          summary,
+                                    "prev_checks":      prev_checks,
+                                    "history_snapshot": history_snapshot,
+                                }
 
                             if mtype == "cancelling":
                                 await ui_ws.send_json({

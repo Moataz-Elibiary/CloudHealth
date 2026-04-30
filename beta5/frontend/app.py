@@ -50,6 +50,11 @@ RUN_LOCK   = asyncio.Lock()
 LAST_RESULTS: List[dict] = []
 LATEST_REPORT_PATH: Optional[str] = None
 
+# In-memory history cache — populated from history_snapshot events after each
+# run, and refreshed on demand via SSH queries to each bastion's local DB.
+# Key: cluster_name → list of run-summary dicts (with "cluster_name" tagged).
+CLUSTER_HISTORY_CACHE: dict = {}
+
 # Tracks WS handles + tunnels that are currently in flight, keyed by
 # cluster name. The cancel path uses this to send a 'cancel' WS action
 # to each bastion backend (so the partial-results path on the bastion
@@ -216,18 +221,160 @@ async def api_version():
 
 @app.get("/api/history")
 async def api_history(limit: int = 30):
-    history_db.init_db()
-    return {"runs": history_db.get_runs(limit=min(limit, 200))}
+    """Serve from in-memory cache (fast path — populated after each run)."""
+    all_runs = []
+    for runs in CLUSTER_HISTORY_CACHE.values():
+        all_runs.extend(runs)
+    all_runs.sort(key=lambda r: r.get("started_at", ""), reverse=True)
+    return {"runs": all_runs[:min(limit, 200)], "from_cache": True}
+
+
+@app.post("/api/history/refresh")
+async def api_history_refresh():
+    """SSH to every bastion, query its local DB, refresh the in-memory cache."""
+    updated = await _refresh_history_cache()
+    all_runs = []
+    for runs in CLUSTER_HISTORY_CACHE.values():
+        all_runs.extend(runs)
+    all_runs.sort(key=lambda r: r.get("started_at", ""), reverse=True)
+    return {"runs": all_runs[:200], "refreshed_bastions": updated}
 
 
 @app.get("/api/history/{run_id}")
 async def api_history_run(run_id: str):
-    history_db.init_db()
-    run = history_db.get_run(run_id)
+    from fastapi.responses import JSONResponse
+    # Locate which cluster owns this run_id from the cache
+    target_cluster = None
+    for cname, runs in CLUSTER_HISTORY_CACHE.items():
+        if any(r.get("run_id") == run_id for r in runs):
+            target_cluster = cname
+            break
+    if not target_cluster:
+        return JSONResponse(status_code=404, content={
+            "error": "run not found — click ↻ Refresh in the History tab first"
+        })
+    try:
+        config_path  = _resolve_config_path()
+        loader       = ConfigLoader(str(config_path))
+        app_settings = loader.get_app_settings()
+        clusters     = loader.load_inventory(app_settings.inventory_file or "inventory.xlsx")
+        cluster      = next((c for c in clusters if c.name == target_cluster), None)
+    except Exception as e:
+        return JSONResponse(status_code=500, content={"error": str(e)})
+    if not cluster:
+        return JSONResponse(status_code=404, content={
+            "error": f"cluster {target_cluster!r} not in inventory"
+        })
+    run = await _ssh_query_history_run(cluster, run_id)
     if not run:
-        from fastapi.responses import JSONResponse
-        return JSONResponse(status_code=404, content={"error": "run not found"})
+        return JSONResponse(status_code=404, content={"error": "run not found on bastion"})
     return run
+
+
+# ── SSH-based history helpers ─────────────────────────────────────────────────
+
+async def _refresh_history_cache() -> int:
+    """Fan out to all bastions, query each local history DB, update cache."""
+    config_path = _resolve_config_path()
+    try:
+        loader       = ConfigLoader(str(config_path))
+        app_settings = loader.get_app_settings()
+        clusters     = loader.load_inventory(app_settings.inventory_file or "inventory.xlsx")
+    except Exception as e:
+        log.warning("history refresh: inventory load failed: %s", e)
+        return 0
+
+    sem     = asyncio.Semaphore(app_settings.parallel_limit or 5)
+    updated = 0
+
+    async def _query_one(cluster):
+        nonlocal updated
+        async with sem:
+            runs = await _ssh_query_history_runs(cluster)
+            if runs is not None:
+                for run in runs:
+                    run["cluster_name"] = cluster.name
+                CLUSTER_HISTORY_CACHE[cluster.name] = runs
+                updated += 1
+
+    await asyncio.gather(*[_query_one(c) for c in clusters], return_exceptions=True)
+    return updated
+
+
+async def _ssh_query_history_runs(cluster) -> Optional[List[dict]]:
+    """Run an inline Python script on a bastion to list its recent runs."""
+    script = (
+        "import sqlite3,json,os,sys\n"
+        "db='/opt/cloud_health/db/history.db'\n"
+        "if not os.path.exists(db):\n"
+        "    print(json.dumps([]))\n"
+        "    sys.exit(0)\n"
+        "conn=sqlite3.connect(db)\n"
+        "conn.row_factory=sqlite3.Row\n"
+        "rows=conn.execute('SELECT run_id,user,started_at,finished_at,"
+        "cluster_count,status,source FROM runs ORDER BY started_at DESC LIMIT 30').fetchall()\n"
+        "print(json.dumps([dict(r) for r in rows]))\n"
+    )
+    return await _ssh_run_python(cluster, script)
+
+
+async def _ssh_query_history_run(cluster, run_id: str) -> Optional[dict]:
+    """Fetch full run details from a bastion via SSH."""
+    rid = run_id.replace("'", "")   # paranoid sanitise — run_id is a UUID
+    script = (
+        "import sqlite3,json,os,sys\n"
+        f"db='/opt/cloud_health/db/history.db'\n"
+        f"rid='{rid}'\n"
+        "if not os.path.exists(db):\n"
+        "    print(json.dumps(None))\n"
+        "    sys.exit(0)\n"
+        "conn=sqlite3.connect(db)\n"
+        "conn.row_factory=sqlite3.Row\n"
+        "row=conn.execute('SELECT * FROM runs WHERE run_id=?',(rid,)).fetchone()\n"
+        "if not row:\n"
+        "    print(json.dumps(None))\n"
+        "    sys.exit(0)\n"
+        "res=dict(row)\n"
+        "cr=conn.execute('SELECT * FROM cluster_results WHERE run_id=? ORDER BY cluster_name',(rid,)).fetchall()\n"
+        "res['clusters']=[dict(c) for c in cr]\n"
+        "print(json.dumps(res))\n"
+    )
+    return await _ssh_run_python(cluster, script)
+
+
+async def _ssh_run_python(cluster, script: str) -> Optional[any]:
+    """Execute a Python script on a bastion via SSH stdin; return parsed JSON."""
+    import paramiko
+    key_path = _resolve_key(cluster.ssh_key)
+    client   = paramiko.SSHClient()
+    client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+    try:
+        kw = dict(
+            hostname     = cluster.installer_ip,
+            username     = cluster.ssh_user,
+            timeout      = 10,
+            banner_timeout = 10,
+            auth_timeout = 10,
+        )
+        if key_path:         kw["key_filename"] = key_path
+        if cluster.ssh_pass: kw["password"]     = cluster.ssh_pass
+        if not cluster.ssh_pass and not cluster.ssh_key:
+            kw["look_for_keys"] = True
+        await asyncio.to_thread(client.connect, **kw)
+        stdin, stdout, _ = await asyncio.to_thread(client.exec_command, "python3")
+        await asyncio.to_thread(stdin.write, script.encode())
+        await asyncio.to_thread(stdin.channel.shutdown_write)
+        out = (await asyncio.to_thread(stdout.read)).decode("utf-8", errors="replace").strip()
+        return json.loads(out) if out else None
+    except Exception as e:
+        log.warning("SSH history query to %s (%s) failed: %s",
+                    cluster.name, cluster.installer_ip, e)
+        return None
+    finally:
+        try:
+            await asyncio.to_thread(client.close)
+        except Exception:
+            pass
 
 
 @app.get("/api/inventory")
@@ -476,12 +623,12 @@ async def _run_all_clusters(
     loader       = ConfigLoader(str(config_path))
     app_settings = loader.get_app_settings()
 
-    # Read history_max_runs directly from raw config (frontend-only knob).
+    # Inject history_max_runs into app_settings so it travels to the backend.
     try:
         _raw_cfg = yaml.safe_load(config_path.read_text()) or {}
-        history_max_runs = int(_raw_cfg.get("history_max_runs", 200))
+        app_settings.history_max_runs = int(_raw_cfg.get("history_max_runs", 200))
     except Exception:
-        history_max_runs = 200
+        app_settings.history_max_runs = 200
 
     if enabled_checks is not None:
         app_settings.enabled_checks = set(enabled_checks)
@@ -529,34 +676,44 @@ async def _run_all_clusters(
     tasks = [_run_with_sem(sem, ui_ws, c, app_settings, output_dir, run_id, user_id)
              for c in clusters]
     raw_results = await asyncio.gather(*tasks, return_exceptions=True)
-    results = [r for r in raw_results if r and not isinstance(r, Exception)]
+
+    # Each task returns None, an Exception, or
+    # {"summary": dict, "prev_checks": list, "history_snapshot": list}
+    results   = []
+    diff_data: dict = {}
+    for r in raw_results:
+        if not r or isinstance(r, Exception):
+            continue
+        if isinstance(r, dict) and "summary" in r:
+            summary          = r["summary"]
+            prev_checks      = r.get("prev_checks", [])
+            history_snapshot = r.get("history_snapshot", [])
+        else:
+            summary, prev_checks, history_snapshot = r, [], []
+        if not summary:
+            continue
+        cname = summary.get("cluster_name", "")
+        results.append(summary)
+        # Build diff data from backend-provided prev_checks list
+        if prev_checks and cname:
+            diff_data[cname] = {
+                (item["section_name"], item["message_index"]): item["status"]
+                for item in prev_checks
+            }
+        # Update in-memory history cache
+        if history_snapshot and cname:
+            for run in history_snapshot:
+                run["cluster_name"] = cname
+            CLUSTER_HISTORY_CACHE[cname] = history_snapshot
+
     LAST_RESULTS = results
 
-    run_end   = datetime.now()
-    elapsed   = (run_end - run_start).total_seconds()
+    elapsed   = (datetime.now() - run_start).total_seconds()
     cancelled = CANCEL_REQUESTED
-    run_status = "CANCELLED" if cancelled else "COMPLETED"
     log.info("All clusters %s in %.1fs — %d result(s) collected",
-             run_status.lower(), elapsed, len(results))
-
-    # P3.1 — persist to history DB (always, including cancelled runs with 0 results)
-    history_db.init_db()
-    history_db.write_run(
-        run_id=run_id, user=user_id,
-        started_at=run_start, finished_at=run_end,
-        results=results, status=run_status,
-        source="ui", max_runs=history_max_runs,
-    )
+             "cancelled" if cancelled else "completed", elapsed, len(results))
 
     if results:
-        # P3.3 — build diff_data: {cluster_name: {(section, idx): prev_status}}
-        diff_data: dict = {}
-        for r in results:
-            cname = r.get("cluster_name", "")
-            prev = history_db.get_previous_checks(cname, run_id)
-            if prev:
-                diff_data[cname] = prev
-
         reporter = HTMLReporter(
             [ClusterResult.from_dict(r) for r in results],
             output_dir,

@@ -293,7 +293,7 @@ body{font-family:'Inter',system-ui,sans-serif;background:linear-gradient(135deg,
     <div id="tab-history" class="tab-content">
       <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:.6rem">
         <span style="font-size:.7rem;font-weight:600;color:var(--dim);text-transform:uppercase;letter-spacing:.06em">Recent Runs</span>
-        <button onclick="loadHistory()" style="font-size:.68rem;background:transparent;border:1px solid var(--glass-b);color:var(--dim);padding:2px 8px;border-radius:4px;cursor:pointer">↻ Refresh</button>
+        <button onclick="refreshHistory()" style="font-size:.68rem;background:transparent;border:1px solid var(--glass-b);color:var(--dim);padding:2px 8px;border-radius:4px;cursor:pointer">↻ Refresh</button>
       </div>
       <div id="historyList" class="history-list">
         <div style="text-align:center;color:var(--dim);padding:2rem 0;font-size:.82rem">Loading…</div>
@@ -776,6 +776,8 @@ function showReportReady(m) {
     &nbsp;|&nbsp;
     <a href="/report/email" target="_blank" style="color:var(--info)">Email Version</a>`;
   b.classList.add('show');
+  // Auto-refresh history list now that the run is complete and the cache is populated
+  loadHistory();
 }
 
 function slug(s) { return (s||'').replace(/[^a-zA-Z0-9]/g,'_'); }
@@ -977,6 +979,17 @@ async function loadHistory() {
     el.innerHTML = runs.map(r => renderHistoryItem(r)).join('');
   } catch(e) {
     el.innerHTML = `<div style="color:var(--fail);font-size:.78rem;padding:.5rem">${e}</div>`;
+  }
+}
+
+async function refreshHistory() {
+  const el = $('historyList');
+  el.innerHTML = '<div style="text-align:center;color:var(--dim);padding:1rem 0;font-size:.8rem">Refreshing from bastions…</div>';
+  try {
+    await fetch('/api/history/refresh', {method: 'POST'});
+    await loadHistory();
+  } catch(e) {
+    el.innerHTML = `<div style="color:var(--fail);font-size:.78rem;padding:.5rem">Refresh failed: ${e}</div>`;
   }
 }
 
