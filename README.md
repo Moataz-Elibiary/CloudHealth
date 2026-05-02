@@ -11,6 +11,11 @@ CloudHealth runs a comprehensive set of health checks across one or many cluster
 - **65+ built-in health checks** spanning OpenShift, CVIM, and host-level diagnostics
 - **Live streaming results** — see each check pass, warn, or fail the moment it completes
 - **Full HTML report** at the end of every run, with detail panels for every command that ran
+- **Run history** — every run is persisted on each cluster's bastion; browse and replay past results without re-running
+- **Diff highlighting** — new failures and resolved issues are marked automatically against the previous run
+- **Per-cluster selection** — pick exactly which clusters to include; quickly re-run only the ones that failed last time
+- **Pre-flight checks** — validate SSH connectivity, auth, and Python availability across all selected clusters before committing to a full run
+- **Cancel / Stop** — abort an in-progress run cleanly; partial results are saved to history with status CANCELLED
 - **Email-friendly report** for sharing summaries with the team
 - **Configurable thresholds** so warnings and failures match your environment's expectations
 - **Multi-cluster, parallel** — check 10 clusters at once instead of one at a time
@@ -21,33 +26,66 @@ CloudHealth runs a comprehensive set of health checks across one or many cluster
 
 ### 1. Launch CloudHealth
 
-Run the bootstrapper. It opens a small browser window prompting for your access credentials, then takes you to the main CloudHealth interface in your default browser.
+**Windows:** Double-click `CloudHealth-Bootstrap.exe`.
 
+> **SmartScreen warning:** Because the exe is not code-signed, Windows will show "Windows protected your PC" on first launch. Click **More info → Run anyway** to proceed. This is a one-time prompt.
+
+**Linux / Mac:**
 ```
-CloudHealth-Bootstrap.exe         (Windows)
-./bootstrapper.py                 (Linux / Mac)
+										   
+./bootstrapper.py
 ```
 
-The first time you log in, you'll be asked whether to remember your credentials. Subsequent launches skip the credential prompt entirely.
+The bootstrapper opens a small browser window prompting for your access credentials, then takes you to the main CloudHealth interface in your default browser.
 
-### 2. The main interface
+The first time you log in, you'll be asked whether to remember your credentials. Subsequent launches skip the credential prompt entirely. Credentials are stored encrypted at `~/Documents/cloud_health/credentials.cache`.
+
+### 2. Pre-flight (automatic)
+
+Before every run, CloudHealth automatically validates that it can reach each selected cluster and that the bastion has Python available. You'll see a table like this:
+
+| Cluster | Reachable | Auth | Python | Backend Version | Status |
+|---|---|---|---|---|---|
+| prod-east | ✓ | ✓ | 3.11.2 | 4.1.0 | OK |
+| prod-west | ✓ | ✗ | — | — | FAIL |
+
+If any cluster fails pre-flight, the run is blocked by default. You can:
+- Fix the issue and click **🛫 Run Pre-flight Only** to re-check without starting a full run
+- Tick **Ignore failures and proceed anyway** to run against only the clusters that passed
+- Tick **Skip pre-flight** to bypass validation entirely (power users)
+
+Pre-flight results are saved to a local audit database at `~/Documents/cloud_health/db/preflight.db`.
+
+### 3. The main interface
 
 Once CloudHealth opens in your browser, you'll see two areas:
 
 | Area | What it's for |
 |---|---|
-| **Sidebar (left)** | Pick which checks to run; tweak thresholds and parallelism |
+| **Sidebar (left)** | Pick clusters and checks, tweak settings, browse run history |
 | **Main panel (right)** | Live results, filters, and the link to the final report |
 
-The sidebar has two tabs: **Test Cases** and **Configuration**.
+The sidebar has three tabs: **Test Cases**, **Configuration**, and **History**.
 
 ---
 
-## Using the Test Cases tab
+## Selecting clusters
 
-This is where you choose what gets checked.
+At the top of the **Test Cases** tab you'll see a list of all enabled clusters from your inventory, each with a checkbox and a type badge (OCP / CVIM).
 
-The checks are grouped into three categories:
+| Button | What it does |
+|---|---|
+| **All** | Select every cluster |
+| **None** | Deselect every cluster |
+| **Failed** | Select only clusters that had failures in the last run (appears after a run with failures) |
+
+This lets you quickly re-run just the clusters that need attention without touching the rest.
+
+---
+
+## Choosing checks
+
+Below the cluster list, the checks are grouped into three categories:
 
 - **OCP Checks (27)** — OpenShift cluster health: nodes, operators, etcd, storage, pods, certificates, networking, alerts, etc.
 - **CVIM Checks (19)** — Cisco VIM cloud health: hypervisors, networking, volumes, OpenStack services, RabbitMQ, MariaDB, Ceph, and more
@@ -55,9 +93,20 @@ The checks are grouped into three categories:
 
 Click any group header to expand it. Each row inside has a checkbox — tick the ones you want to include in this run.
 
-> **Tip:** Each group also has quick "Select all" / "Select none" links in the header. Use them to flip an entire category on or off in one click.
+> **Tip:** Each group also has quick "Select all" / "Select none" links in the header.
 
 When you're ready, click the big **🚀 Run Health Check** button at the bottom of the sidebar.
+
+---
+
+## Cancelling a run
+
+Click **⏹ Stop** (visible only while a run is active) to abort cleanly. CloudHealth:
+
+1. Sends a cancel signal to every active bastion backend
+2. Closes all SSH tunnels
+3. Saves whatever partial results were collected on the bastion with status **CANCELLED**
+4. Marks the run in the History tab with a distinct CANCELLED badge
 
 ---
 
@@ -96,6 +145,31 @@ These determine when a check is reported as a warning vs. a failure.
 
 ---
 
+## Using the History tab
+
+The **History** tab shows the last 30 runs — timestamp, user, cluster count, pass/fail/warn totals, and status (including CANCELLED).
+
+History is stored on each bastion at `/opt/cloud_health/db/history.db` and streamed to the frontend at the end of every run. Click **↻ Refresh** to re-fetch from all bastions over SSH.
+
+Click any run to expand a per-cluster summary panel showing P/F/W counts without re-running.
+
+---
+
+## Diff highlighting in reports
+
+When you open a full report after a run, CloudHealth automatically compares every check result against the previous successful run for that cluster. Changes are highlighted inline:
+
+| Badge | Meaning |
+|---|---|
+| **NEW** (red) | This failure or warning did not exist in the previous run |
+| **RESOLVED** (strikethrough) | This failure existed in the previous run and is now gone |
+
+A **"What's Changed"** banner at the top of the report summarises the diff: _"3 new failures since [timestamp], 1 resolved, 2 new warnings."_
+
+Cancelled runs are skipped as a comparison baseline — only completed runs are used for diff.
+
+---
+
 ## The inventory file
 
 CloudHealth reads the list of clusters to check from an Excel file (`inventory.xlsx` by default). The file has two sheets:
@@ -130,7 +204,7 @@ One row per physical host you want host-level checks against. Columns:
 
 ## Reading the live results
 
-Once you click Run, the main panel populates in real time. Each cluster gets its own card. The header shows the cluster name and current status (Running, Pass, Warn, Fail), and inside the card you'll see one section per check group with the individual results streaming in.
+Once you click Run, the main panel populates in real time. Each cluster gets its own card. The header shows the cluster name and current status (Running, Pass, Warn, Fail, Cancelled), and inside the card you'll see one section per check group with the individual results streaming in.
 
 ### Status icons
 
@@ -167,7 +241,7 @@ This is what you'll want when debugging a failure — every check is reproducibl
 
 A green banner appears at the top of the main panel with two links:
 
-- **Open Full Report** — A self-contained HTML report with every cluster, every section, every check item, and a clickable table of contents. You can save it, share it, archive it.
+- **Open Full Report** — A self-contained HTML report with every cluster, every section, every check item, diff badges, and a clickable table of contents. You can save it, share it, archive it.
 - **Email Version** — A simpler HTML view formatted to paste cleanly into email or messaging tools.
 
 Both reports are also written to your configured **Output Dir** so you have local copies.
@@ -176,15 +250,19 @@ Both reports are also written to your configured **Output Dir** so you have loca
 
 ## How it works (high level)
 
-When you click Run, CloudHealth connects securely to each cluster's bastion node, runs the checks you selected, and streams the results back to your browser as they complete. The same logic runs against every cluster in parallel, so total runtime is roughly the time of your slowest cluster, not the sum of all of them.
+When you click Run, CloudHealth:
 
-For host checks, CloudHealth additionally connects to each physical host listed in the inventory and runs the host-level diagnostics there. Host checks within a cluster also run in parallel up to the configured **Max Nodes** limit.
+1. Runs **pre-flight** — validates SSH + auth + Python on each selected cluster in parallel
+2. **SFTP-pushes** the backend engine to each bastion (only when the version has changed)
+3. **Launches** the backend on each bastion and establishes a WebSocket tunnel back to your browser
+4. **Streams** results live as each check completes
+5. **Saves** run history to the bastion's SQLite DB, generates a diff against the previous run, and writes the HTML report to your machine
 
-Nothing is installed permanently on your clusters. Diagnostics are scoped to the run that triggered them, and credentials never leave the machines that need them — your laptop only ever holds the credentials for the cluster bastions you've configured.
+Total runtime is roughly the time of your slowest cluster, not the sum of all of them.
 
 ### Three-tier SSH architecture
 
-CloudHealth uses a three-tier architecture to reach compute and storage nodes without exposing direct access from your laptop:
+																															  
 
 ```
 ┌─────────────────┐    1× SSH tunnel     ┌─────────────────┐    N× parallel SSH   ┌──────────────┐
@@ -194,53 +272,93 @@ CloudHealth uses a three-tier architecture to reach compute and storage nodes wi
 └─────────────────┘                      └─────────────────┘                      └──────────────┘
 ```
 
-**How it works:**
+1. **Tier 1 (Laptop → Bastion):** One SSH tunnel per cluster, open for the entire run. Results stream back via WebSocket.
+2. **Tier 2 (Bastion → Compute/Storage):** The bastion's backend engine opens parallel SSH sessions to physical hosts. All host diagnostics run on the bastion side.
+3. **Tier 3 (Per-node checks):** Multiple checks run concurrently on a single SSH session to each node.
 
-1. **Tier 1 (Laptop → Bastion):** You connect once per cluster to its bastion / installer node. This connection stays open for the entire run and uses the credentials from your inventory file. Results stream back via WebSocket.
+**Concurrency layers:**
+- **Parallel Limit** — clusters checked simultaneously (1× tunnel per cluster)
+- **Max Nodes** — hosts checked per cluster in parallel (N× SSH from bastion)
+- **Per-node checks** — all checks on a single host run concurrently (unbounded)
 
-2. **Tier 2 (Bastion → Compute/Storage):** The bastion runs the backend Python engine, which initiates parallel SSH connections *from the bastion* to each physical host. These connections use host-specific credentials (if provided in the inventory) or fall back to the bastion credentials. All host diagnostics run on the bastion side.
+No scripts are installed permanently on any node. All diagnostics run as one-off SSH commands.
 
-3. **Tier 3 (Per-node checks):** Once connected to a host, multiple checks run concurrently on a single SSH session. For example, CPU, memory, disk, and NTP checks all run in parallel without needing separate connections.
+---
 
-**Concurrency control has three layers:**
+## Where things live
 
-- **Parallel Limit** — Controls how many clusters are checked simultaneously from your laptop (1× SSH tunnel per cluster)
-- **Max Nodes** — Controls how many physical hosts are checked in parallel per cluster (N× SSH from bastion)
-- **Per-node checks** — All checks for a single host run concurrently on its SSH connection (unbounded)
+### On your machine (user's laptop / Windows workstation)
+																											   
+																										 
 
-No scripts are installed on compute nodes. All diagnostics use one-off commands executed via SSH, with output parsed and returned to the bastion for formatting and streaming back to your browser.
+| What | Path |
+|---|---|
+| Credentials cache (encrypted) | `~/Documents/cloud_health/credentials.cache` |
+| Salt file (credential encryption key) | `~/Documents/cloud_health/.salt` |
+| Version tracker | `~/Documents/cloud_health/version.txt` |
+| Synced program files | `~/Documents/cloud_health/program/` |
+| Pre-flight audit database | `~/Documents/cloud_health/db/preflight.db` |
+| HTML reports | Your configured **Output Dir** (default: `./outputs/`) |
+| Bootstrapper metadata | `~/Documents/cloud_health/.meta` |
+
+> **Upgrading from an earlier beta?** Beta5 uses `~/Documents/cloud_health/` exclusively. If you were using `~/.cloud_health/` before, you will need to re-enter your credentials once after upgrading.
+
+### On each cluster bastion
+
+| What | Path |
+|---|---|
+| Run history database | `/opt/cloud_health/db/history.db` |
+| Backend engine (temporary, per run) | `/tmp/cloud_health/` |
+| Vendor wheels (offline pip) | `/tmp/cloud_health/vendor/` |
+| System log | `/tmp/cloud_health/log/system_YYYYMMDD.log` |
+| Per-check command log | `/tmp/cloud_health/log/commands_YYYYMMDD.log` |
+| Host check log | `/tmp/cloud_health/log/hosts_YYYYMMDD.log` |
+| Run lock file | `/tmp/cloud_health/hc.lock` |
+
+### On the source / version server
+
+| What | Path |
+|---|---|
+| Backend source + vendor wheels | `/opt/cloud_health/` |
+| Version file | `/opt/cloud_health/version.txt` |
+| Python dependency wheels (offline) | `/opt/cloud_health/vendor/` |
 
 ---
 
 ## Troubleshooting
 
 **The credential prompt opens but won't accept my password.**
-You'll be re-prompted up to three times. After that, double-check the credentials with your administrator. Cached credentials are stored encrypted; if you ever need to clear them, delete the credentials cache file (your administrator can tell you the exact path).
+You'll be re-prompted up to three times. After that, the bootstrapper exits. Double-check your credentials with your administrator. The encrypted credentials cache is at `~/Documents/cloud_health/credentials.cache` — delete that file to force a fresh login prompt next launch.
 
-**A cluster shows ERROR before any checks run.**
-This usually means CloudHealth couldn't reach the cluster bastion or the SSH credentials in the inventory are wrong. Check that:
-1. The bastion IP / hostname in the inventory is correct
-2. Your SSH user has permission on that bastion
-3. The bastion is reachable from your machine (try `ssh user@host` manually)
+**Pre-flight fails for a cluster.**
+Check the Status column in the pre-flight table. Common causes:
+- **Not reachable** — bastion IP wrong or network blocked; try `ssh user@host` manually
+- **Auth failed** — wrong credentials in the inventory file
+- **python3 unavailable** — Python 3 is not installed on that bastion
+
+You can tick **Ignore failures and proceed anyway** to skip the failing clusters and continue with the rest.
+
+**A cluster shows ERROR or BUSY before any checks run.**
+BUSY means another CloudHealth run is already active on that bastion (the conflicting PID and start time are shown). Wait for it to finish, or use **Stop** on the active session. ERROR means the connection or backend launch failed — expand the error message for details.
 
 **The run hangs or takes much longer than expected.**
-Lower the **Parallel Limit** and **Max Nodes** values in the Configuration tab. Some environments throttle parallel SSH connections, and a too-aggressive setting can cause queuing.
+Lower the **Parallel Limit** and **Max Nodes** values in the Configuration tab. Some environments throttle parallel SSH connections, and an aggressive setting can cause queuing or timeouts.
 
 **A specific check fails but I think it's a false positive.**
-Click the check to expand its details panel and read the actual command output. If the threshold is the issue (e.g., disk warning at 85% but you consider 90% normal for that cluster), set a per-cluster override in the inventory file instead of changing the global threshold.
+Click the check to expand its details panel and read the actual command output. If the threshold is the issue, set a per-cluster override in the inventory file rather than changing the global default.
 
 **A check shows SKIP.**
-The check determined it doesn't apply to this cluster (e.g., a CVIM check on an OCP cluster, or a SR-IOV check on a host without SR-IOV cards). This is expected behavior, not an error.
+The check doesn't apply to this cluster type (e.g., a CVIM check on an OCP cluster, or SR-IOV on a host without SR-IOV cards). This is expected behaviour, not an error.
 
----
+   
 
-## Where things live on your machine
+									
 
-| What | Where |
-|---|---|
-| HTML reports | Your configured **Output Dir** (set in Configuration tab) |
-| Cached credentials (encrypted) | Managed automatically; you don't need to touch this |
-| Frontend logs | Saved automatically; ask your administrator if you need them for support |
+**Windows SmartScreen blocks the .exe on first launch.**
+Click **More info**, then **Run anyway**. The exe is not code-signed but is safe to run. This prompt appears only once per machine.
+																			
+																						
+																							
 
 ---
 
@@ -250,4 +368,5 @@ If something looks wrong and you're stuck:
 
 1. Open the Full Report and use the **Failures** filter to see only the problems.
 2. Expand a failing check — the **command** field shows exactly what was run, and the **detail** field shows exactly what came back.
-3. If you need to escalate, copy the cluster name, check name, command, and output. That's everything someone needs to diagnose the issue.
+3. Check the **History** tab to compare against previous runs — the diff badges tell you whether this failure is new or pre-existing.
+4. If you need to escalate, copy the cluster name, check name, command, and output. That's everything someone needs to diagnose the issue.

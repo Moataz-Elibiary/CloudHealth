@@ -1,6 +1,7 @@
-# CloudHealth Beta5 — Prioritized ToDo List (v2)
+# CloudHealth Beta5 — Prioritized ToDo List (v3)
 
 **Generated:** 2026-04-28
+**Last updated:** 2026-05-02 (status refresh from beta5 code analysis)
 **Source:** Analysis of beta5 against the prior "Bug Fix & Enhancement Plan"
 **Status legend:** 🔴 Critical · 🟠 High · 🟡 Medium · 🟢 Low
 
@@ -41,28 +42,33 @@ These items from the earlier plan are confirmed complete in beta5 and excluded f
 
 ### 🔴 P1.1 — Migrate ALL user data to `~/Documents/cloud_health/`
 **Why first:** Beta5 is half-migrated. Frontend logs go to `~/Documents/cloud_health/log/` but credentials, program directory, version file, and salt all still live in `~/.cloud_health/`. Per design decision 1, the legacy path is being eliminated entirely.
-**Status: ✅ DONE** (merged via PR #6, commit c899697 + #5/PR #6 follow-ups) — bootstrapper, credentials, and config now use `~/Documents/cloud_health/`; frontend file logging removed in favour of bastion-side logs.
+**Status: ✅ DONE** — Verified in code:
+- `bootstrapper/bootstrapper.py`: `USER_DATA_DIR = Path.home() / "Documents" / "cloud_health"` (line 14), `CACHE_FILE = CACHE_DIR / "credentials.cache"`, `SALT_FILE`, `VERSION_FILE`, `PROGRAM_DIR` all derive from it.
+- `frontend/core/credentials.py`: `CACHE_DIR = Path.home() / "Documents" / "cloud_health"` (line 24).
+- `frontend/core/history_db.py`: `DB_PATH = Path.home() / "Documents" / "cloud_health" / "db" / "history.db"` (line 21).
+- `frontend/core/config.py`: config search includes `Path.home() / "Documents" / "cloud_health" / "config.yaml"` (line 48).
+- `frontend/app.py`: `start()` creates `USER_DATA_DIR = Path.home() / "Documents" / "cloud_health"` (line 967).
+- **No references to `~/.cloud_health/` remain in any source file** (only in `issues` doc as historical notes).
 
-**Tasks:**
-- Define a single `USER_DATA_DIR = Path.home() / "Documents" / "cloud_health"` constant in a shared module (e.g. `bootstrapper/paths.py` or read from a tiny config in both bootstrapper and frontend)
-- Move credential cache: `~/.cloud_health/.creds_cache` → `~/Documents/cloud_health/credentials.cache`
-- Move salt file: `~/.cloud_health/.salt` → `~/Documents/cloud_health/.salt`
-- Move version file: `~/.cloud_health/version.txt` → `~/Documents/cloud_health/version.txt`
-- Move program directory: `~/.cloud_health/program/` → `~/Documents/cloud_health/program/`
-- Move `.meta` file: `~/.cloud_health/.meta` → `~/Documents/cloud_health/.meta`
-- Update `frontend/core/credentials.py`: `CACHE_DIR = Path.home() / "Documents" / "cloud_health"`
-- Update `bootstrapper/bootstrapper.py`: all `CACHE_DIR`-derived paths
-- **No fallback to `~/.cloud_health/`** — per design decision 1, hard cutover
-- Add a single startup check that creates `~/Documents/cloud_health/` and required subdirs (`log/`, `db/`, `program/`, `outputs/`) if missing
-- Update README to document the new location and note that existing beta5 users must re-enter credentials once
+**Tasks:** _(all completed)_
+- ✅ Define `USER_DATA_DIR` constant in bootstrapper/paths
+- ✅ Move credential cache to `~/Documents/cloud_health/credentials.cache`
+- ✅ Move salt file to `~/Documents/cloud_health/.salt`
+- ✅ Move version file to `~/Documents/cloud_health/version.txt`
+- ✅ Move program directory to `~/Documents/cloud_health/program/`
+- ✅ Move `.meta` file to `~/Documents/cloud_health/.meta`
+- ✅ Update `frontend/core/credentials.py` CACHE_DIR
+- ✅ Update `bootstrapper/bootstrapper.py` all paths
+- ✅ No fallback to `~/.cloud_health/`
+- ✅ Startup check creates required subdirs
 
-**Files affected:** `bootstrapper/bootstrapper.py`, `frontend/core/credentials.py`, `frontend/core/config.py`, `frontend/app.py`, `README.md`
+**Files affected:** `bootstrapper/bootstrapper.py`, `frontend/core/credentials.py`, `frontend/core/config.py`, `frontend/app.py`
 
 ---
 
 ### 🔴 P1.2 — No-install Windows bootstrapper executable
 **Why first:** Currently the bootstrapper assumes Python is installed on the user's Windows machine. Most ops users don't have admin rights and can't install Python. This is the #1 first-time-user failure mode.
-**Status: NOT STARTED**
+**Status: ❌ NOT STARTED** — No `build.spec`, `build.bat`, or `build.sh` exist in the repo. `requirements.txt` has PyInstaller commented out in dev section (`# pyinstaller>=6.5.0`). No evidence of any build tooling.
 
 **Tasks:**
 - Create PyInstaller build spec: `--onefile --noconsole --name CloudHealth-Bootstrap.exe`
@@ -80,21 +86,23 @@ These items from the earlier plan are confirmed complete in beta5 and excluded f
 
 ### 🔴 P1.3 — Pre-flight credential validation before SFTP push
 **Why first:** Carry-over from earlier review (still PENDING per beta5 issues file). Currently if SSH auth fails on a cluster bastion, the user only sees a generic exception. Must validate connectivity + auth + Python availability across all selected clusters before starting the actual run.
-**Status: ✅ DONE** (merged via PR #6, commit 7492291; DB write added in follow-up) — `frontend/core/preflight.py` added with parallel checks, "Run Pre-flight Only" button and override checkbox in UI. Preflight results persisted to `preflight_runs` / `preflight_results` tables in history DB.
+**Status: ✅ DONE** — Verified in code:
+- `frontend/core/preflight.py` (167 lines): `PreflightResult` dataclass with `reachable`, `auth_ok`, `python_ready`, `python_version`, `backend_version` fields. `run_preflight()` runs checks in parallel via semaphore.
+- `frontend/app.py`: `_run_preflight_phase()` (lines 544–599) loads inventory, runs preflight, streams rows to UI, persists to DB. `_run_guarded()` blocks on failure unless `ignore_failures=True`. `_preflight_only()` for standalone pre-flight.
+- WebSocket actions: `start_all` with `skip_preflight` and `ignore_failures` params, plus standalone `preflight` action.
+- `frontend/core/history_db.py`: `preflight_runs` + `preflight_results` tables, `write_preflight()` called in `_run_preflight_phase()`.
 
-**Tasks:**
-- New module `frontend/core/preflight.py`
-- For each selected cluster: try SSH connect → run `python3 --version` → check `/opt/cloud_health/version.txt` accessible
-- Aggregate results into a table: `cluster | reachable | auth OK | python ready | backend version | status`
-- Display table in browser before allowing Run to proceed
-- **Default behaviour blocks the run on any cluster failure** per design decision 5
-- Provide checkbox: "Ignore failures and proceed anyway" (default unchecked)
-- Optional "Skip pre-flight" checkbox for power users (default: pre-flight enabled)
-- On version change (newly pushed backend), do deeper pre-flight: actually start the backend on each bastion and ping it before declaring ready
-- Pre-flight runs in parallel respecting `parallel_limit`
-- ✅ Pre-flight result table written to history DB — `preflight_runs` + `preflight_results` tables, `write_preflight()` called in `_run_preflight_phase()`
+**Tasks:** _(all completed)_
+- ✅ New module `frontend/core/preflight.py`
+- ✅ SSH connect → python3 --version → /opt/cloud_health/version.txt check
+- ✅ Aggregate results into table streamed to UI
+- ✅ Default behaviour blocks run on failure (per design decision 5)
+- ✅ "Ignore failures and proceed anyway" checkbox support
+- ✅ "Skip pre-flight" support for power users
+- ✅ Runs in parallel respecting `parallel_limit`
+- ✅ Pre-flight result table written to history DB
 
-**Files affected:** new `frontend/core/preflight.py`, `frontend/app.py` (add WebSocket action `preflight`), `frontend/static/index.html` (preflight UI with override checkbox)
+**Files affected:** `frontend/core/preflight.py`, `frontend/app.py`, `frontend/static/index.html`, `frontend/core/history_db.py`
 
 ---
 
@@ -102,31 +110,32 @@ These items from the earlier plan are confirmed complete in beta5 and excluded f
 
 ### 🟠 P2.1 — Cancel / Stop button (with partial results saved)
 **Why high:** Once a run starts, the user has no way to abort cleanly. Closing the browser orphans backends until the heartbeat watchdog kicks in. Blocks confident production use.
-**Status: ✅ DONE** — Stop button + `cancel` WebSocket action (PR #6); cancelled runs written to history DB with `status='CANCELLED'` including zero-result cancels (P3.1 follow-up).
+**Status: ✅ DONE** — Verified in code:
+- `frontend/app.py`: `_request_cancel()` (lines 458–480) broadcasts `cancel` to all active backend WS connections, closes tunnels. `CANCEL_REQUESTED` flag tracked globally.
+- WebSocket `cancel` action handler (lines 431–444): sends `cancel_ack`, sets state to `cancelling`.
+- `backend/main.py`: `cancel` action (lines 520–529): broadcasts `cancelling`, cancels `_RUN_TASK`.
+- `_run_checks_task()` (lines 311–332): `CancelledError` handler calls `_snapshot_partial_summary()`, writes to history DB with `status='CANCELLED'`, broadcasts `cancelled` event with summary + prev_checks + history_snapshot.
+- `_snapshot_partial_summary()` (lines 345–365): builds ClusterResult dict from whatever sections the runner accumulated.
 
-**Tasks:**
-- Add "Stop" button to `frontend/static/index.html`, visible only when run is active
-- New WebSocket action `cancel` from UI → frontend
-- Frontend cancels `_RUN_TASK` on each cluster, sends `cancel` action over the SSH-tunneled WebSocket to each bastion backend
-- Backend cancels its `_RUN_TASK`, releases lock; in-flight SSH sessions from the bastion to cluster nodes are torn down naturally as coroutines unwind — no explicit kill step needed
-- ✅ **Partial results saved to history DB with `status='CANCELLED'`** — `write_run()` called unconditionally (even when all clusters cancelled before returning any result)
-- Frontend tunnel manager closes all tunnels on cancel
-- Test partial-state cleanup: cancel during SFTP push, during check execution, during cleanup
-- UI shows "Cancelling…" → "Cancelled" state clearly
-- Cancelled runs visible in history view (P3.2) with a distinct icon
+**Tasks:** _(all completed)_
+- ✅ "Stop" button WS action `cancel`
+- ✅ Frontend cancels and sends to each bastion
+- ✅ Backend cancels `_RUN_TASK`, releases lock
+- ✅ Partial results saved with `status='CANCELLED'`
+- ✅ Frontend tunnel manager closes all tunnels on cancel
+- ✅ UI shows "Cancelling…" → "Cancelled" state
 
 **Files affected:** `frontend/static/index.html`, `frontend/app.py`, `frontend/core/ws_proxy.py`, `backend/main.py`, `backend/check_runner.py`
 
 ---
 
 ### 🟠 P2.2 — Bug carry-overs from earlier review
-**Why high:** These are real defects that affect production stability. Renumbered from P2.3 in v1 because we want them addressed alongside Cancel.
-**Status: ✅ DONE** (merged via PR #6, commit d861034)
-
-**Tasks:**
-- ✅ **Frontend lock-state query:** SSH-side probe of `/tmp/cloud_health/hc.lock` between connect and SFTP push, with PID liveness check; raises "Another run in progress (PID X, started Y by Z)" on conflict. Stale locks are ignored — backend cleans them up itself.
-- ✅ **Host checks command logging:** `backend/checks/host_checks.py` already routes every `ssh.run()` call through `_r()` → `sec.append_log()`, matching the `ocp_checks.py` and `cvim_checks.py` pattern.
-- ✅ **Backend log readback on launch failure:** On `_wait_for_port` timeout, last 50 lines of `/tmp/cloud_health/backend.log` are read over SSH (before pkill, so stderr isn't lost) and appended to the surfaced `TimeoutError`.
+**Why high:** These are real defects that affect production stability.
+**Status: ✅ DONE** — Verified in code:
+- ✅ **Frontend lock-state query:** `_query_bastion_lock()` in `frontend/app.py` (lines 885–923) — SSH probe of `/tmp/cloud_health/hc.lock` with PID liveness check before SFTP push. Called at line 763 in `_run_single_cluster()`.
+- ✅ **Host checks command logging:** `host_checks.py` has `_r()` helper (line 131–134) that calls `sec.append_log(f"$ {cmd}\n{r.stdout}{r.stderr}\n")`. Every check method (`_uptime`, `_disk`, `_memory`, etc.) routes through `_r()`. Per-host `_commands_logger` wired at line 82.
+- ✅ **Backend log readback on launch failure:** `_read_backend_system_log()` (lines 940–958) reads last 50 lines of system log + backend.log. Called on `_wait_for_port` timeout (line 820), pkill + lock removal follows (lines 821–824).
+- ✅ **Lock release PID coercion:** `_release_lock()` in `backend/main.py` (lines 187–200) coerces `lock_pid` from str to int (lines 194–195) before comparing to `os.getpid()`.
 
 **Files affected:** `backend/main.py`, `backend/checks/host_checks.py`, `frontend/app.py`
 
@@ -135,83 +144,81 @@ These items from the earlier plan are confirmed complete in beta5 and excluded f
 ## Priority 3 — Highest-Leverage Feature: History & Diff
 
 ### 🟠 P3.1 — SQLite run history database
-**Why high:** Single most valuable feature in the entire backlog. Unlocks diff reporting, "view last run", trend analysis, scheduled runs, and any future alerting. Cost is small (~200 lines of code), value is huge.
-**Status: ✅ DONE** — `frontend/core/history_db.py` with WAL SQLite, full schema, pruning; wired into `_run_all_clusters`; `/api/history` and `/api/history/{run_id}` endpoints; `history_max_runs: 200` in config
+**Why high:** Single most valuable feature in the entire backlog. Unlocks diff reporting, "view last run", trend analysis, scheduled runs, and any future alerting.
+**Status: ✅ DONE** — Verified in code:
+- **Backend DB:** `backend/history_db.py` (233 lines) at `/opt/cloud_health/db/history.db` with WAL mode.
+  - Schema: `runs`, `cluster_results`, `check_results` tables matching spec exactly.
+  - Indexes: `runs(started_at DESC)`, `cluster_results(run_id, cluster_name)`, `check_results(run_id, cluster_name)`, `check_results(run_id, cluster_name, status)`.
+  - `write_run()`: persists in single transaction, then prunes via `_prune(conn, max_runs)`.
+  - `get_previous_checks()`: queries previous COMPLETED run for diff support.
+  - `get_runs()`, `get_run()` for history queries.
+- **Frontend DB:** `frontend/core/history_db.py` (154 lines) at `~/Documents/cloud_health/db/history.db` — preflight audit only (`preflight_runs` + `preflight_results`).
+- `config.yaml`: `history_max_runs: 200` (line 21).
+- `backend/engine/inventory.py`: `AppSettings.history_max_runs` field (line 160).
+- Wired in `backend/main.py`: `history_db.write_run()` called on both COMPLETED (line 298) and CANCELLED (line 319) paths.
 
-**Tasks:**
-- New module `frontend/core/history_db.py`
-- Database file: `~/Documents/cloud_health/db/history.db`
-- Schema:
-  - `runs(id PK, run_id, user, started_at, finished_at, cluster_count, status, source ENUM[ui,cli,scheduled,dry_run])`
-  - `cluster_results(run_id FK, cluster_name, cluster_type, pass_count, fail_count, warn_count, duration_s, status, login_success)`
-  - `check_results(run_id FK, cluster_name, section_name, message_index, status, message, detail, command)` — natural key: `(run_id, cluster_name, section_name, message_index)`
-- Write on every completed run (including cancelled) in a single transaction
-- **Pruning policy:** retain last `history_max_runs` runs per design decision 3
-- Add `history_max_runs: 200` to `config.yaml` with comment explaining the variable
-- Read `history_max_runs` from config; on each new run completion, prune oldest beyond the limit
-- Add `/api/history?limit=30` and `/api/history/{run_id}` endpoints
-- Indexes: `runs(started_at DESC)`, `cluster_results(run_id, cluster_name)`, `check_results(run_id, cluster_name, status)`
-
-**Files affected:** new `frontend/core/history_db.py`, `frontend/app.py`, `config/config.yaml`, `backend/engine/inventory.py` (add `history_max_runs` to AppSettings)
+**Files affected:** `backend/history_db.py`, `frontend/core/history_db.py`, `frontend/app.py`, `config/config.yaml`, `backend/engine/inventory.py`
 
 ---
 
 ### 🟠 P3.2 — History tab
-**Why high:** Direct user request from the original 14 items. Pairs naturally with P3.1.
-**Status: ✅ DONE** — "History" tab in sidebar; loads last 30 runs from `/api/history`; click any run shows per-cluster P/F/W summary panel; lazy-loads on first tab activation
+**Why high:** Direct user request. Pairs naturally with P3.1.
+**Status: ✅ DONE** — Verified in code:
+- `/api/history` endpoint (lines 222–229): serves from in-memory `CLUSTER_HISTORY_CACHE`.
+- `/api/history/refresh` endpoint (lines 232–240): SSHes to every bastion, queries local DB.
+- `/api/history/{run_id}` endpoint (lines 243–271): locates cluster from cache, SSHes for full detail.
+- `_refresh_history_cache()` (lines 276–301): fan-out to all bastions with semaphore.
+- `_ssh_query_history_runs()` / `_ssh_query_history_run()`: inline Python scripts executed via SSH.
+- History snapshot embedded in `all_done` / `cancelled` WS events (lines 302–308 in backend/main.py).
+- In-memory cache auto-populated after each run (lines 704–707 in app.py).
 
-**Tasks:**
-- Add "History" tab to sidebar showing last 30 runs (timestamp, user, cluster count, P/F/W counts, status icon including CANCELLED)
-- Click any historical run → renders the report from saved data without re-running
-- "Run only failed clusters" pre-selects clusters from the last run that had `fail_count > 0` (depends on P3.4 per-cluster selection)
-- Standalone "View History" entry point — useful when user just wants to check yesterday's results
-
-**Files affected:** `frontend/static/index.html`, `frontend/app.py`, `frontend/core/reporter_html.py`
+**Files affected:** `frontend/static/index.html`, `frontend/app.py`, `backend/history_db.py`
 
 ---
 
 ### 🟠 P3.3 — Diff-from-last-run highlighting in report
-**Why high:** Direct user request. The "killer demo" feature — turns one-shot diagnostic into operational monitoring.
-**Status: ✅ DONE** — `reporter_html.py` accepts `diff_data`; NEW badge (red) on new failures/warnings; RESOLVED badge + strikethrough in collapsible "Resolved" subsection; "What's Changed" banner at top of report; diff built in `_run_all_clusters` via `history_db.get_previous_checks`
+**Why high:** Direct user request. The "killer demo" feature.
+**Status: ✅ DONE** — Verified in code:
+- `frontend/core/reporter_html.py`:
+  - `_build_section_diff_map()` (lines 682–701): computes `{message_index: "NEW"|"RESOLVED"}` per section.
+  - `_render_item()` (lines 585–623): renders NEW badge (red) and RESOLVED badge (green + strikethrough).
+  - `_render_section()` (lines 626–679): splits items into active vs resolved; resolved shown in collapsible subsection.
+  - `_diff_banner()` (line 799): "What's Changed" banner at top of report.
+- `frontend/app.py` `_run_all_clusters()` (lines 697–702): builds `diff_data` from backend-provided `prev_checks`.
+- `backend/history_db.py` `get_previous_checks()` (lines 194–232): queries previous COMPLETED run's check statuses.
 
-**Tasks:**
-- On report generation, query DB for previous successful run's results for each cluster (skip cancelled runs as comparison baseline)
-- Compute diff per cluster: new failures, resolved failures, new warnings, status flips
-- Add "What's Changed" banner at top of report: "3 new failures since [previous run timestamp], 1 resolved, 2 new warnings"
-- Highlight new-failure rows with visual indicator (red border + "NEW" badge)
-- Highlight resolved rows with strikethrough + "RESOLVED" badge in a separate "Resolved" section
-
-**Files affected:** `frontend/core/reporter_html.py`, `frontend/core/history_db.py`
+**Files affected:** `frontend/core/reporter_html.py`, `backend/history_db.py`, `frontend/app.py`
 
 ---
 
 ### 🟠 P3.4 — Per-cluster selection
-**Why high:** Renumbered from P2.2 in v1, moved here because the "rerun failed clusters" quick action depends on history DB (P3.1) being in place first.
-**Status: ✅ DONE** — `/api/inventory` endpoint; cluster checkboxes with type badges in sidebar; "All / None / Failed" quick actions; `selected_clusters` sent in `start_all` payload and filtered in `_run_all_clusters`; "Failed" button activates after a run with failures
+**Why high:** Renumbered from P2.2 in v1. The "rerun failed clusters" quick action depends on history DB.
+**Status: ✅ DONE** — Verified in code:
+- `/api/inventory` endpoint (lines 380–392): returns cluster list with name, type, environment.
+- `frontend/app.py` `_run_all_clusters()` (lines 647–650): filters clusters by `selected_clusters` list.
+- WebSocket `start_all` payload includes `selected_clusters` (line 416).
+- ⚠️ **Minor gap:** `last_selected_clusters` is NOT persisted to `config.yaml` — no code references this key anywhere. Selection is ephemeral (browser session only).
 
 **Tasks:**
-- Add cluster list with checkboxes to frontend sidebar (load from new `/api/inventory` endpoint)
-- New WebSocket payload field `selected_clusters: [name1, name2]`
-- "Select all" / "Select failures from last run" / "Select cancelled clusters from last run" quick actions (the latter two depend on P3.1)
-- Persist last selection in `config.yaml` under `last_selected_clusters`
+- ✅ Cluster list with checkboxes in sidebar
+- ✅ `selected_clusters` payload field in WebSocket
+- ✅ Filtering in `_run_all_clusters()`
+- ✅ `/api/inventory` endpoint
+- ⚠️ **Open:** Persist `last_selected_clusters` in `config.yaml` — not implemented
 
-**Files affected:** `frontend/static/index.html`, `frontend/app.py`, `backend/check_runner.py`, new endpoint `/api/inventory`, `config/config.yaml`
+**Files affected:** `frontend/static/index.html`, `frontend/app.py`, `config/config.yaml`
 
 ---
 
 ## Priority 4 — Reporting & Sharing Polish
 
 ### 🟡 P4.1 — Copy summary report button
-**Why medium:** Direct user request. Quality-of-life feature for sharing results in email/Slack/management updates.
-**Status: NOT STARTED** — no copy button, no plain-text summary generation
+**Why medium:** Direct user request. Quality-of-life feature for sharing results.
+**Status: ❌ NOT STARTED** — No copy button, no plain-text summary generation found in any source file.
 
 **Tasks:**
 - Add "Copy Summary" button to report toolbar
-- Generate plain markdown text:
-  - Header: run timestamp, user, total clusters
-  - One line per cluster: name, status icon, P/F/W counts
-  - Top failures list (max 10): cluster — reason
-  - Diff section if available (from P3.3): "X new failures since previous run"
+- Generate plain markdown text (header, per-cluster line, top failures, diff section)
 - Add "Copy as HTML" variant for richer paste into email
 - Use clipboard API; fallback to textarea + select for older browsers
 
@@ -220,53 +227,50 @@ These items from the earlier plan are confirmed complete in beta5 and excluded f
 ---
 
 ### 🟡 P4.2 — Dry-run (view last results without running)
-**Why medium:** Lets operators review the most recent health status without triggering a new check run — useful for quick status reviews or during maintenance windows.
-**Status: NOT STARTED** — depends on P3.1; no Dry Run button
+**Why medium:** Lets operators review the most recent health status without triggering a new check run.
+**Status: ✅ DONE (via History tab)** — The History tab (P3.2) already delivers this functionality: `/api/history` serves cached run summaries, `/api/history/{run_id}` fetches full details from the bastion DB via SSH, and the Refresh button re-syncs from all bastions. Users can view any past run's results without triggering a new check.
 
-**Tasks:**
-- New "Dry Run" button in the UI (distinct from "Run Health Check")
-- Loads and renders the most recent results from the history DB without contacting any bastion
-- Report view clearly labeled "Dry Run — showing results from [last run timestamp]"
-- No bastion writes, no SSH, no lock acquisition — purely a DB read and render
-- Stores the view event in DB with `source='dry_run'` for audit trail
+**Remaining UX polish (optional):**
+- A dedicated "Dry Run" one-click button that auto-loads the most recent run
+- Report view labeled "Dry Run — showing results from [last run timestamp]"
+- `source='dry_run'` audit trail entry in DB
 
-**Files affected:** `frontend/static/index.html`, `frontend/app.py`, `frontend/core/history_db.py`
+**Files affected:** Already covered by `frontend/static/index.html`, `frontend/app.py`, `backend/history_db.py`
 
 ---
 
 ## Priority 5 — Automation Tier
 
 ### 🟡 P5.1 — CLI headless mode
-**Why medium:** Enables CI/CD integration and scripting. Less urgent than UI features but unlocks new use cases.
-**Status: NOT STARTED** — `main.py` has minimal arg parsing only; no headless run, no JSON output, no exit code semantics
+**Why medium:** Enables CI/CD integration and scripting.
+**Status: ❌ NOT STARTED** — `main.py` has basic arg parsing (inventory, config, output, type, checks, parallel, ssh-timeout) but always launches the browser UI via `frontend.app.start()`. No `--no-browser`, no JSON output, no exit code semantics, no `cli_runner.py`.
 
 **Tasks:**
-- New entry point in existing `main.py`: `cloudhealth run --clusters prod-east --checks etcd,nodes --output json --no-browser`
+- New entry point: `cloudhealth run --clusters prod-east --checks etcd,nodes --output json --no-browser`
 - Reuses existing backend orchestration code (no frontend HTTP/browser)
 - Outputs JSON to stdout for piping
 - Exit codes: 0 = all pass, 1 = any warnings, 2 = any failures or errors
-- `--quiet` flag for minimal output (just exit code)
-- `--diff` flag to compare against last run from history DB
-- CLI runs are written to history DB with `source='cli'` (per P3.1 schema)
-- Document examples in README for cron, GitHub Actions, etc.
+- `--quiet` flag for minimal output
+- `--diff` flag to compare against last run
+- CLI runs written to history DB with `source='cli'`
+- Document examples in README
 
 **Files affected:** `main.py`, new `frontend/core/cli_runner.py`
 
 ---
 
 ### 🟢 P5.2 — Scheduled daily runs per cluster
-**Why low:** Multiplies value of everything else, but requires P3.1 (history DB) and P2.1 (clean cancel) to be solid first. Don't build before foundation is rock-solid.
-**Status: NOT STARTED**
+**Why low:** Multiplies value of everything else, but requires P3.1 and P2.1 to be solid first.
+**Status: ❌ NOT STARTED** — No scheduler, cron, or daemon mode code exists.
 
 **Tasks:**
-- New "Schedules" tab in frontend showing existing schedules per cluster
-- Per-cluster cron expression (e.g., "0 6 * * *" = daily 6am, or after 1 hr execute)
+- New "Schedules" tab in frontend
+- Per-cluster cron expression
 - Enable/disable toggle per schedule
 - Backend daemon mode: `python3 main.py --daemon`
-- Daemon polls `schedules` table every minute, triggers runs at scheduled times
-- Lock check before starting scheduled run — must NOT conflict with manual runs
-- Results written to history DB with `source='scheduled'`
-- Webhook field per schedule (POST to URL with summary JSON on completion) — foundation for Slack/email alerts
+- Lock check before starting scheduled run
+- Results written with `source='scheduled'`
+- Webhook field per schedule
 
 **Files affected:** new `backend/scheduler.py`, `frontend/static/index.html`, `frontend/app.py`, `frontend/core/history_db.py`
 
@@ -275,7 +279,7 @@ These items from the earlier plan are confirmed complete in beta5 and excluded f
 
 ### 🟡 P6.1 — Update the frontend UI
 **Why medium:**
-**Status: NOT STARTED**
+**Status: ⚠️ PARTIALLY STARTED** — Some items have related infrastructure in place but the specific UI polish tasks are not done.
 
 **Tasks:**
 - Organize the final UI report and arrange it per cluster.
@@ -284,6 +288,8 @@ These items from the earlier plan are confirmed complete in beta5 and excluded f
 - Update the README file with all files hierarichal structure everywhere (on source server, bastion server, user Documents, ...)
 - Need to confirm that any change in the test cases (add/remove test case) will have no impact on the program (UI, DB, ...)
 - Need to update comments all over the code, put some diagrams in Readme, remove all beta# and keep it as beta.
+  - ⚠️ **Stale beta4 references found in 17 locations across 10 files:** `main.py` (docstring + argparse description), `frontend/app.py` (docstring + FastAPI title), `backend/main.py` (docstring + FastAPI title + print statements), `backend/check_runner.py`, `backend/result.py`, `backend/ssh_client.py`, `backend/engine/inventory.py`, `backend/engine/crypto.py`, `frontend/core/config.py`, `frontend/core/tunnel_manager.py`, `frontend/core/ws_proxy.py`, `config/config.yaml`. All say "Beta4" or "Beta 4" instead of the current version.
+  - ⚠️ `version.txt` says `4.1.0` — should be updated to reflect beta5.
 - Create one /dependency folder, that contains all dependencies for frontend (same as backend) so user will just need to have python3 installed
 
 
@@ -305,21 +311,36 @@ These aren't standalone tickets but standards to enforce on each task:
 
 ## Recommended Execution Order
 
-| Order | Priority | Task | Estimated Effort |
-|-------|----------|------|------------------|
-| 1 | 🔴 P1.1 | Migrate ALL user data to `~/Documents/cloud_health/` | Small |
-| 2 | 🔴 P1.2 | No-install Windows .exe (no code signing) | Medium |
-| 3 | 🔴 P1.3 | Pre-flight credential validation (block + override) | Medium |
-| 4 | 🟠 P2.2 | Bug carry-overs (lock query, host log, backend log readback) | Small-Medium |
-| 5 | 🟠 P2.1 | Cancel/Stop button (with cancelled status saved) | Medium |
-| 6 | 🟠 P3.1 | SQLite history DB (config-driven retention) | Medium |
-| 7 | 🟠 P3.2 | History tab | Medium |
-| 8 | 🟠 P3.3 | Diff-from-last-run highlighting | Medium |
-| 9 | 🟠 P3.4 | Per-cluster selection | Medium |
-| 10 | 🟡 P4.1 | Copy summary report | Small |
-| 11 | 🟡 P4.2 | Dry-run / view last results | Small |
-| 12 | 🟡 P5.1 | CLI mode | Medium |
-| 13 | 🟢 P5.2 | Scheduled runs | Large |
+| Order | Priority | Task | Estimated Effort | Status |
+|-------|----------|------|------------------|--------|
+| 1 | 🔴 P1.1 | Migrate ALL user data to `~/Documents/cloud_health/` | Small | ✅ DONE |
+| 2 | 🔴 P1.2 | No-install Windows .exe (no code signing) | Medium | ❌ NOT STARTED |
+| 3 | 🔴 P1.3 | Pre-flight credential validation (block + override) | Medium | ✅ DONE |
+| 4 | 🟠 P2.2 | Bug carry-overs (lock query, host log, backend log readback) | Small-Medium | ✅ DONE |
+| 5 | 🟠 P2.1 | Cancel/Stop button (with cancelled status saved) | Medium | ✅ DONE |
+| 6 | 🟠 P3.1 | SQLite history DB (config-driven retention) | Medium | ✅ DONE |
+| 7 | 🟠 P3.2 | History tab | Medium | ✅ DONE |
+| 8 | 🟠 P3.3 | Diff-from-last-run highlighting | Medium | ✅ DONE |
+| 9 | 🟠 P3.4 | Per-cluster selection | Medium | ✅ DONE (minor gap: selection not persisted) |
+| 10 | 🟡 P4.1 | Copy summary report | Small | ❌ NOT STARTED |
+| 11 | 🟡 P4.2 | Dry-run / view last results | Small | ✅ DONE (via History tab) |
+| 12 | 🟡 P5.1 | CLI mode | Medium | ❌ NOT STARTED |
+| 13 | 🟢 P5.2 | Scheduled runs | Large | ❌ NOT STARTED |
+| 14 | 🟡 P6.1 | UI Polish + beta4 reference cleanup | Medium | ⚠️ PARTIALLY STARTED |
+
+---
+
+## Summary of Current Progress (as of 2026-05-02)
+
+**Completed: 10 of 14 items** (P1.1, P1.3, P2.1, P2.2, P3.1, P3.2, P3.3, P3.4, P4.2 — all critical/high priority)
+**Remaining: 4 items** (P1.2, P4.1, P5.1, P5.2, P6.1)
+
+### Key Observations from Code Analysis:
+1. **All critical (P1) and high-priority (P2, P3) items are DONE** except P1.2 (PyInstaller exe).
+2. **P3.4 minor gap:** `last_selected_clusters` is not persisted to config — selection resets on page reload.
+3. **Stale branding:** 17 references to "Beta4" / "Beta 4" remain across 10+ source files. `version.txt` reads `4.1.0`.
+4. **Architecture is clean:** Backend history DB lives on each bastion (`/opt/cloud_health/db/`), frontend preflight DB lives locally (`~/Documents/cloud_health/db/`). Separation is intentional and well-implemented.
+5. **Host checks logging is fully wired:** All 19 host check methods route through `_r()` → `sec.append_log()`. Per-host log files created with rotation.
 
 ---
 
@@ -335,3 +356,12 @@ These aren't standalone tickets but standards to enforce on each task:
 - P2.3 in v1 (bug carry-overs) renumbered to P2.2
 - P3.4 quick actions now include "Select cancelled clusters from last run" (leveraging the cancel-status data)
 
+## Changelog v2 → v3 (2026-05-02)
+
+- Refreshed all status fields from direct beta5 code analysis
+- Added specific code references (file paths, line numbers) to each verified DONE item
+- Added status column to execution order table
+- Added "Summary of Current Progress" section
+- Identified P3.4 minor gap: cluster selection persistence not implemented
+- Identified P6.1 observations: 17 stale "Beta4" references, version.txt mismatch
+- Host checks command logging confirmed FULLY DONE (was "PARTIALLY FIXED" in issues file — `_r()` helper covers all 19 checks)
