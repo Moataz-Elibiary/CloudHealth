@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>CloudHealth Beta 4</title>
+<title>CloudHealth Beta 5</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
 <style>
@@ -301,7 +301,7 @@ body{font-family:'Inter',system-ui,sans-serif;background:linear-gradient(135deg,
     </div>
 
   </div>
-  <div class="sidebar-footer">© 2026 CloudHealth Beta 4</div>
+  <div class="sidebar-footer">© 2026 CloudHealth Beta 5</div>
 </aside>
 
 <!-- ══════════ MAIN ══════════ -->
@@ -919,10 +919,18 @@ let _failedClusters = new Set();
 
 async function loadClusters() {
   try {
-    const res = await fetch('/api/inventory');
-    const data = await res.json();
-    _allClusters = data.clusters || [];
+    const [invRes, cfgRes] = await Promise.all([fetch('/api/inventory'), fetch('/api/config')]);
+    const invData = await invRes.json();
+    const cfgData = await cfgRes.json();
+    _allClusters = invData.clusters || [];
     renderClusterList();
+    const saved = cfgData.last_selected_clusters;
+    if (Array.isArray(saved) && saved.length > 0) {
+      const savedSet = new Set(saved);
+      document.querySelectorAll('.cluster-chk').forEach(b => {
+        b.checked = savedSet.has(b.value);
+      });
+    }
     if (_allClusters.length > 0) {
       $('clusterSelSection').style.display = '';
     }

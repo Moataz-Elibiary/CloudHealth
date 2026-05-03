@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""CloudHealth Beta 4 — entry point."""
+"""CloudHealth Beta 5 — entry point."""
 from __future__ import annotations
 import argparse, logging, sys
 from pathlib import Path
@@ -10,7 +10,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 
 def main():
     p = argparse.ArgumentParser(prog="cloudhealth",
-                                description="CloudHealth Beta4 — Universal Cluster Health Check")
+                                description="CloudHealth Beta5 — Universal Cluster Health Check")
     p.add_argument("-i","--inventory", default=None)
     p.add_argument("-c","--config",    default=None)
     p.add_argument("-o","--output",    default=None)

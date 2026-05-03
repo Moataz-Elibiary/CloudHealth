@@ -1,5 +1,5 @@
 # ============================================================================
-# CloudHealth Beta 4 — config.yaml
+# CloudHealth Beta 5 — config.yaml
 # Both the frontend (ConfigLoader) and backend (AppSettings.from_dict) read
 # from this file.  All keys are optional — defaults are shown as comments.
 # ============================================================================
@@ -33,6 +33,13 @@ thresholds:
   load_fail:     5.0   # load_ratio_fail
   swap_warn:     30    # swap_used_pct_warn
 
+# ── OCP-specific thresholds ───────────────────────────────────────────────────
+cert_warn_days:          30   # warn if a TLS certificate expires within this many days
+restart_warn_threshold:   5   # pod restart count that triggers a WARN
+restart_fail_threshold:  20   # pod restart count that triggers a FAIL
+pod_age_min_warn:         5   # warn if a pod is younger than this many minutes
+pod_age_min_fail:         2   # fail if a pod is younger than this many minutes
+
 # ── Check filter (uncomment to restrict which categories run) ─────────────────
 # enabled_checks:
 #   - nodes
@@ -42,3 +49,4 @@ thresholds:
 
 # ── Persisted by UI (do not edit manually) ───────────────────────────────────
 last_enabled_checks: []
+last_selected_clusters: []

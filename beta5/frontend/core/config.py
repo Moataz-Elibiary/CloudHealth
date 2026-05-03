@@ -1,5 +1,5 @@
 """
-Beta4 frontend/core/config.py
+Beta5 frontend/core/config.py
 
 Uses Beta3's InventoryLoader (pandas + HEADER_ALIASES) exposed via
 a thin ConfigLoader subclass.

@@ -1,5 +1,5 @@
 """
-Beta4 frontend/core/tunnel_manager.py
+Beta5 frontend/core/tunnel_manager.py
 
 Improvements over both betas:
   - Dynamic local port: caller passes local_port from socket.bind(0)

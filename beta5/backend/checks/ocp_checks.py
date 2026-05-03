@@ -23,7 +23,7 @@ class OCPHealthChecker:
     # ── helpers ───────────────────────────────────────────────────────────────
 
     def _thr(self, attr: str):
-        v = getattr(self.c, attr)
+        v = getattr(self.c, attr, None)
         return v if v is not None else getattr(self.app, attr)
 
     async def _oc(self, cmd: str, timeout: int = None) -> 'CmdResult':

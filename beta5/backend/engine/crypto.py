@@ -1,5 +1,5 @@
 """
-Beta4 core/crypto.py — fixed credential encryption.
+Beta5 core/crypto.py — fixed credential encryption.
 
 Bug fixed vs Beta3: hardcoded salt b'cloud_health_salt' replaced with
 a random 16-byte salt stored in SALT_FILE. Without this, all encrypted
