@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>CloudHealth Beta 5</title>
+<title>CloudHealth Beta</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
 <style>
@@ -228,7 +228,7 @@ body{font-family:'Inter',system-ui,sans-serif;background:linear-gradient(135deg,
 <aside class="sidebar">
   <div class="sidebar-inner">
     <div class="logo">
-      <h1>CloudHealth<span class="badge">BETA 4</span></h1>
+      <h1>CloudHealth<span class="badge">BETA</span></h1>
       <p>Cloud Health Check &amp; Diagnostics</p>
     </div>
 
@@ -254,10 +254,10 @@ body{font-family:'Inter',system-ui,sans-serif;background:linear-gradient(135deg,
         <div style="text-align:center;color:var(--dim);padding:2rem 0;font-size:.82rem">Loading checks…</div>
       </div>
       <div class="preflight-opts">
-        <label class="pf-chk"><input type="checkbox" id="opt_skip_preflight"> Skip pre-flight</label>
-        <label class="pf-chk"><input type="checkbox" id="opt_ignore_failures"> Ignore pre-flight failures and proceed</label>
+        <label class="pf-chk"><input type="checkbox" id="opt_skip_preflight"> Skip validation</label>
+        <label class="pf-chk"><input type="checkbox" id="opt_ignore_failures"> Ignore validation failures and proceed</label>
       </div>
-      <button class="run-btn secondary" id="preflightBtn">🛫 Run Pre-flight Only</button>
+      <button class="run-btn secondary" id="preflightBtn">🛫 Run Validation Only</button>
       <button class="run-btn" id="runBtn">🚀 Run Health Check</button>
       <button class="run-btn stop" id="stopBtn" style="display:none">⏹ Stop</button>
     </div>
@@ -301,7 +301,7 @@ body{font-family:'Inter',system-ui,sans-serif;background:linear-gradient(135deg,
     </div>
 
   </div>
-  <div class="sidebar-footer">© 2026 CloudHealth Beta 5</div>
+  <div class="sidebar-footer">© 2026 CloudHealth Beta</div>
 </aside>
 
 <!-- ══════════ MAIN ══════════ -->
@@ -323,7 +323,7 @@ body{font-family:'Inter',system-ui,sans-serif;background:linear-gradient(135deg,
 
     <!-- Pre-flight panel -->
     <div class="preflight-panel" id="preflightPanel">
-      <h3>🛫 Pre-flight Validation</h3>
+      <h3>🛫 Validation Check</h3>
       <div class="pf-summary" id="preflightSummary"></div>
       <div style="overflow-x:auto">
         <table class="preflight-table">
@@ -782,7 +782,7 @@ function showReportReady(m) {
 
 function slug(s) { return (s||'').replace(/[^a-zA-Z0-9]/g,'_'); }
 
-// ── Pre-flight rendering ──────────────────────────────────────────────────
+// ── Validation rendering ──────────────────────────────────────────────────
 function resetPreflightPanel() {
   $('preflightRows').innerHTML = '';
   $('preflightSummary').textContent = '';
@@ -828,7 +828,7 @@ function onPreflightDone(m) {
   const total  = m.rows.length;
   $('preflightSummary').textContent = m.all_ok
     ? `All ${total} cluster(s) ready.`
-    : `${failed} of ${total} cluster(s) failed pre-flight.`;
+    : `${failed} of ${total} cluster(s) failed validation.`;
   $('preflightSummary').classList.toggle('blocked', !m.all_ok);
 }
 function onPreflightBlocked(m) {
