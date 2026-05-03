@@ -6,7 +6,7 @@ Steps: try cached creds → SSH version check → SFTP sync if needed → launch
 On auth failure: re-prompt user (up to MAX_ATTEMPTS times), then exit with error.
 """
 from __future__ import annotations
-import hashlib, http.server, json, os, subprocess, sys, threading, webbrowser
+import hashlib, http.server, json, os, subprocess, sys, threading, time, webbrowser
 from pathlib import Path
 from typing import Optional
 from urllib.parse import parse_qs
@@ -17,10 +17,11 @@ CACHE_FILE     = CACHE_DIR / "credentials.cache"
 SALT_FILE      = CACHE_DIR / ".salt"
 VERSION_FILE   = CACHE_DIR / "version.txt"
 PROGRAM_DIR    = CACHE_DIR / "program"
-BOOTSTRAP_PORT = 9000
+BOOTSTRAP_PORT = 8080
 REMOTE_ROOT    = "/opt/cloud_health"
 REMOTE_VERSION = f"{REMOTE_ROOT}/version.txt"
 MAX_ATTEMPTS   = 3
+DEBUG          = os.getenv("CLOUDHEALTH_DEBUG", "").lower() in ("1", "true", "yes")
 
 
 # ---------------------------------------------------------------------------
@@ -79,24 +80,41 @@ _conn_status: dict = {"state": "pending"}   # "pending" | "error" | "fatal" | "o
 class _Handler(http.server.BaseHTTPRequestHandler):
     def log_message(self, *_): pass
 
+    def _send(self, body: bytes, content_type: str = "text/html;charset=utf-8"):
+        self.send_response(200)
+        self.send_header("Content-Type", content_type)
+        self.send_header("Content-Length", str(len(body)))
+        self.send_header("Connection", "close")
+        self.end_headers()
+        self.wfile.write(body)
+        self.wfile.flush()
+
     def do_GET(self):
-        if self.path == "/status":
-            body = json.dumps(_conn_status).encode()
-            self.send_response(200)
-            self.send_header("Content-Type", "application/json")
-            self.send_header("Content-Length", str(len(body)))
-            self.end_headers()
-            self.wfile.write(body)
-        else:
-            meta = {}
-            meta_file = CACHE_DIR / ".meta"
-            if meta_file.exists():
-                try: meta = json.loads(meta_file.read_text())
-                except: pass
-            self.send_response(200)
-            self.send_header("Content-Type", "text/html;charset=utf-8")
-            self.end_headers()
-            self.wfile.write(_html(meta, _error_msg).encode())
+        try:
+            if self.path == "/status":
+                self._send(json.dumps(_conn_status).encode(), "application/json")
+            elif self.path == "/":
+                meta = {}
+                meta_file = CACHE_DIR / ".meta"
+                if meta_file.exists():
+                    try: meta = json.loads(meta_file.read_text())
+                    except: pass
+                self._send(_html(meta, _error_msg).encode())
+            else:
+                if DEBUG: print(f"[server] 404 {self.path}", flush=True)
+                self.send_response(404)
+                self.end_headers()
+        except Exception as e:
+            if DEBUG:
+                print(f"[server] ERROR in do_GET: {e}", flush=True)
+                import traceback
+                traceback.print_exc()
+
+    def do_HEAD(self):
+        if DEBUG: print(f"[server] HEAD {self.path}", flush=True)
+        self.send_response(200)
+        self.send_header("Content-Type", "text/html;charset=utf-8")
+        self.end_headers()
 
     def do_POST(self):
         global _creds, _conn_status
@@ -111,11 +129,9 @@ class _Handler(http.server.BaseHTTPRequestHandler):
             "remember": params.get("remember", "") == "on",
         }
         _conn_status = {"state": "pending"}
-        self.send_response(200)
-        self.send_header("Content-Type", "text/html;charset=utf-8")
-        self.end_headers()
-        self.wfile.write(_connecting_html().encode())
-        threading.Thread(target=_done.set, daemon=True).start()
+        self._send(_connecting_html().encode())
+        if DEBUG: print(f"[server] Credentials received: host={_creds.get('host')}, user={_creds.get('username')}", flush=True)
+        _done.set()
 
 
 def _html(meta: dict, error: str = "") -> str:
@@ -136,6 +152,7 @@ input{{width:100%;background:#1e2333;border:1px solid #2a3350;border-radius:5px;
        padding:.65rem .85rem;color:#e8edf8;font-size:.88rem;margin-bottom:1rem}}
 .row2{{display:grid;grid-template-columns:3fr 1fr;gap:.75rem}}
 .chk{{display:flex;align-items:center;gap:.5rem;font-size:.82rem;color:#7a8aaa;margin-bottom:1.25rem}}
+.chk input{{width:auto;padding:0;margin-bottom:0;background:none;border:none}}
 button{{width:100%;padding:.85rem;background:linear-gradient(135deg,#6366f1,#8b5cf6);
         color:#fff;border:none;border-radius:5px;font-size:.9rem;font-weight:700;cursor:pointer}}
 .err{{background:#3b1a1a;border:1px solid #7f1d1d;border-radius:5px;color:#f87171;
@@ -215,7 +232,7 @@ def _install_deps(program_dir: Path) -> None:
         raise RuntimeError("requirements.txt missing from synced program — source server is misconfigured")
     if not vendor_dir.exists():
         raise RuntimeError("vendor/ directory missing from synced program — source server must bundle wheels with 'pip download'")
-    print("[bootstrap] Installing dependencies from vendor/ (offline) …")
+    if DEBUG: print("[bootstrap] Installing dependencies from vendor/ (offline) …")
     result = subprocess.run(
         [sys.executable, "-m", "pip", "install",
          "--no-index", "--find-links", str(vendor_dir),
@@ -224,7 +241,7 @@ def _install_deps(program_dir: Path) -> None:
     )
     if result.returncode != 0:
         raise RuntimeError(f"pip install failed:\n{result.stderr.strip()}")
-    print("[bootstrap] Dependencies installed")
+    if DEBUG: print("[bootstrap] Dependencies installed")
 
 
 def _sync(host: str, port: int, username: str, password: str) -> tuple:
@@ -240,13 +257,13 @@ def _sync(host: str, port: int, username: str, password: str) -> tuple:
             remote_ver = fh.read().decode().strip()
         local_ver = VERSION_FILE.read_text().strip() if VERSION_FILE.exists() else ""
         if local_ver != remote_ver:
-            print(f"[bootstrap] Syncing {local_ver or 'none'} → {remote_ver}")
+            if DEBUG: print(f"[bootstrap] Syncing {local_ver or 'none'} → {remote_ver}")
             _sftp_pull(sftp, REMOTE_ROOT, PROGRAM_DIR)
             VERSION_FILE.write_text(remote_ver)
-            print("[bootstrap] Sync complete")
+            if DEBUG: print("[bootstrap] Sync complete")
             return remote_ver, True
         else:
-            print(f"[bootstrap] Version {remote_ver} up to date — skipping sync")
+            if DEBUG: print(f"[bootstrap] Version {remote_ver} up to date — skipping sync")
             return remote_ver, False
     finally:
         sftp.close()
@@ -256,9 +273,9 @@ def _sync(host: str, port: int, username: str, password: str) -> tuple:
 def _launch():
     main_py = PROGRAM_DIR / "main.py"
     if not main_py.exists():
-        print(f"[bootstrap] main.py not found at {main_py}")
+        if DEBUG: print(f"[bootstrap] main.py not found at {main_py}")
         sys.exit(1)
-    print("[bootstrap] Launching CloudHealth…")
+    if DEBUG: print("[bootstrap] Launching CloudHealth…")
     subprocess.Popen([sys.executable, str(main_py)], cwd=str(PROGRAM_DIR))
 
 
@@ -273,7 +290,7 @@ def main():
     # --- Try cached credentials first (no popup) ---
     cached = load_creds()
     if cached:
-        print(f"[bootstrap] Trying cached credentials for {cached['host']}:{cached['port']} …")
+        if DEBUG: print(f"[bootstrap] Trying cached credentials for {cached['host']}:{cached['port']} …")
         try:
             _, synced = _sync(cached["host"], cached["port"], cached["username"], cached["password"])
             if synced:
@@ -281,54 +298,80 @@ def main():
             _launch()
             return
         except Exception as e:
-            print(f"[bootstrap] Cached credentials failed: {e} — clearing cache")
+            if DEBUG: print(f"[bootstrap] Cached credentials failed: {e} — clearing cache")
             CACHE_FILE.unlink(missing_ok=True)
             _error_msg = f"Saved credentials failed: {e}. Please enter your credentials again."
 
     # --- Credential popup with retry loop ---
-    server = http.server.HTTPServer(("127.0.0.1", BOOTSTRAP_PORT), _Handler)
-    threading.Thread(target=server.serve_forever, daemon=True).start()
-    webbrowser.open(f"http://127.0.0.1:{BOOTSTRAP_PORT}")
-
-    for attempt in range(1, MAX_ATTEMPTS + 1):
-        _done.wait()
-        _done.clear()
-        creds = _creds
-
-        print(f"[bootstrap] Connecting to {creds['host']}:{creds['port']} …"
-              f" (attempt {attempt}/{MAX_ATTEMPTS})")
+    try:
+        server = http.server.ThreadingHTTPServer(("127.0.0.1", BOOTSTRAP_PORT), _Handler)
+        server_thread = threading.Thread(target=server.serve_forever, daemon=True)
+        server_thread.start()
+        time.sleep(0.3)   # give the server a moment to bind before opening the browser
+        url = f"http://127.0.0.1:{BOOTSTRAP_PORT}"
         try:
-            _, synced = _sync(creds["host"], creds["port"], creds["username"], creds["password"])
-            if synced:
-                _conn_status = {"state": "pending", "msg": "Installing dependencies…"}
-                _install_deps(PROGRAM_DIR)
-        except Exception as e:
-            msg = str(e)
-            print(f"[bootstrap] Connection failed: {msg}")
-            if attempt == MAX_ATTEMPTS:
-                print("[bootstrap] Max attempts reached — exiting")
-                _conn_status = {"state": "fatal",
-                                "msg": f"Connection failed after {MAX_ATTEMPTS} attempts: {msg}"}
-                import time; time.sleep(3)   # let JS pick up the fatal status
-                server.shutdown()
-                sys.exit(1)
-            remaining = MAX_ATTEMPTS - attempt
-            _conn_status = {"state": "error", "msg": msg}
-            _error_msg = f"Login failed: {msg}. {remaining} attempt(s) remaining."
-            print(f"[bootstrap] Retrying ({remaining} attempt(s) remaining) …")
-            continue
+            os.startfile(url)
+        except Exception:
+            webbrowser.open(url)
+    except Exception as e:
+        if DEBUG: print(f"[bootstrap] FATAL: Failed to start server: {e}")
+        sys.exit(1)
 
-        # Success — save credentials only after a confirmed working connection
-        if creds.get("remember"):
-            save_creds(creds["host"], creds["port"], creds["username"], creds["password"])
-            (CACHE_DIR / ".meta").write_text(
-                json.dumps({"ip": creds["host"], "user": creds["username"]}))
+    try:
+        for attempt in range(1, MAX_ATTEMPTS + 1):
+            if DEBUG: print(f"[bootstrap] Waiting for credentials (attempt {attempt})", flush=True)
+            deadline = time.monotonic() + 60
+            while not _done.wait(timeout=1):
+                if time.monotonic() >= deadline:
+                    if DEBUG: print("[bootstrap] Timeout waiting for credentials (60s)", flush=True)
+                    _error_msg = "Timed out waiting for credentials. Please submit the form."
+                    _conn_status = {"state": "error", "msg": "Timed out waiting for credentials"}
+                    break
+            else:
+                _done.clear()
+            creds = _creds
+            if not creds:
+                if DEBUG: print("[bootstrap] No credentials captured after wait, retrying...", flush=True)
+                continue
 
-        _conn_status = {"state": "ok"}
-        import time; time.sleep(1)   # let JS pick up the ok status
+            if DEBUG: print(f"[bootstrap] Connecting to {creds['host']}:{creds['port']} …"
+                            f" (attempt {attempt}/{MAX_ATTEMPTS})")
+            try:
+                _, synced = _sync(creds["host"], creds["port"], creds["username"], creds["password"])
+                if synced:
+                    _conn_status = {"state": "pending", "msg": "Installing dependencies…"}
+                    _install_deps(PROGRAM_DIR)
+            except Exception as e:
+                msg = str(e)
+                if DEBUG: print(f"[bootstrap] Connection failed: {msg}")
+                if attempt == MAX_ATTEMPTS:
+                    if DEBUG: print("[bootstrap] Max attempts reached — exiting")
+                    _conn_status = {"state": "fatal",
+                                    "msg": f"Connection failed after {MAX_ATTEMPTS} attempts: {msg}"}
+                    time.sleep(3)   # let JS pick up the fatal status
+                    server.shutdown()
+                    sys.exit(1)
+                remaining = MAX_ATTEMPTS - attempt
+                _conn_status = {"state": "error", "msg": msg}
+                _error_msg = f"Login failed: {msg}. {remaining} attempt(s) remaining."
+                if DEBUG: print(f"[bootstrap] Retrying ({remaining} attempt(s) remaining) …")
+                continue
+
+            # Success — save credentials only after a confirmed working connection
+            if creds.get("remember"):
+                save_creds(creds["host"], creds["port"], creds["username"], creds["password"])
+                (CACHE_DIR / ".meta").write_text(
+                    json.dumps({"ip": creds["host"], "user": creds["username"]}))
+
+            _conn_status = {"state": "ok"}
+            time.sleep(1)   # let JS pick up the ok status
+            server.shutdown()
+            _launch()
+            return
+    except KeyboardInterrupt:
+        if DEBUG: print("\n[bootstrap] Interrupted — exiting", flush=True)
         server.shutdown()
-        _launch()
-        return
+        sys.exit(0)
 
 
 if __name__ == "__main__":
