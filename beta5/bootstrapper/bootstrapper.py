@@ -95,8 +95,10 @@ class _Handler(http.server.BaseHTTPRequestHandler):
                 except: pass
             self.send_response(200)
             self.send_header("Content-Type", "text/html;charset=utf-8")
+            body = _html(meta, _error_msg).encode()
+            self.send_header("Content-Length", str(len(body)))
             self.end_headers()
-            self.wfile.write(_html(meta, _error_msg).encode())
+            self.wfile.write(body)
 
     def do_POST(self):
         global _creds, _conn_status
@@ -113,8 +115,10 @@ class _Handler(http.server.BaseHTTPRequestHandler):
         _conn_status = {"state": "pending"}
         self.send_response(200)
         self.send_header("Content-Type", "text/html;charset=utf-8")
+        body = _connecting_html().encode()
+        self.send_header("Content-Length", str(len(body)))
         self.end_headers()
-        self.wfile.write(_connecting_html().encode())
+        self.wfile.write(body)
         threading.Thread(target=_done.set, daemon=True).start()
 
 
