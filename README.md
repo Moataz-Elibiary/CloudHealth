@@ -32,8 +32,12 @@ CloudHealth runs a comprehensive set of health checks across one or many cluster
 
 **Linux / Mac:**
 ```
-										   
 ./bootstrapper.py
+```
+
+**Linux / Mac (debug mode):**
+```
+CLOUDHEALTH_DEBUG=1 ./bootstrapper.py
 ```
 
 The bootstrapper opens a small browser window prompting for your access credentials, then takes you to the main CloudHealth interface in your default browser.
@@ -44,10 +48,10 @@ The first time you log in, you'll be asked whether to remember your credentials.
 
 Before every run, CloudHealth automatically validates that it can reach each selected cluster and that the bastion has Python available. You'll see a table like this:
 
-| Cluster | Reachable | Auth | Python | Backend Version | Status |
-|---|---|---|---|---|---|
-| prod-east | ✓ | ✓ | 3.11.2 | 4.1.0 | OK |
-| prod-west | ✓ | ✗ | — | — | FAIL |
+| Cluster   | Reachable | Auth | Python | Backend Version | Status |
+|-----------|-----------|------|--------|-----------------|--------|
+| prod-east | ✓        | ✓    | 3.11.2 | 4.1.0           | OK     |
+| prod-west | ✓        | ✗    | —      | —               | FAIL   |
 
 If any cluster fails pre-flight, the run is blocked by default. You can:
 - Fix the issue and click **🛫 Run Pre-flight Only** to re-check without starting a full run
@@ -60,10 +64,10 @@ Pre-flight results are saved to a local audit database at `~/Documents/cloud_hea
 
 Once CloudHealth opens in your browser, you'll see two areas:
 
-| Area | What it's for |
-|---|---|
-| **Sidebar (left)** | Pick clusters and checks, tweak settings, browse run history |
-| **Main panel (right)** | Live results, filters, and the link to the final report |
+| Area                   | What it's for                                                |
+|------------------------|--------------------------------------------------------------|
+| **Sidebar (left)**     | Pick clusters and checks, tweak settings, browse run history |
+| **Main panel (right)** | Live results, filters, and the link to the final report      |
 
 The sidebar has three tabs: **Test Cases**, **Configuration**, and **History**.
 
@@ -73,10 +77,10 @@ The sidebar has three tabs: **Test Cases**, **Configuration**, and **History**.
 
 At the top of the **Test Cases** tab you'll see a list of all enabled clusters from your inventory, each with a checkbox and a type badge (OCP / CVIM).
 
-| Button | What it does |
-|---|---|
-| **All** | Select every cluster |
-| **None** | Deselect every cluster |
+| Button     | What it does                                                                               |
+|------------|--------------------------------------------------------------------------------------------|
+| **All**    | Select every cluster                                                                       |
+| **None**   | Deselect every cluster                                                                     |
 | **Failed** | Select only clusters that had failures in the last run (appears after a run with failures) |
 
 This lets you quickly re-run just the clusters that need attention without touching the rest.
@@ -260,16 +264,49 @@ When you click Run, CloudHealth:
 
 Total runtime is roughly the time of your slowest cluster, not the sum of all of them.
 
-### Three-tier SSH architecture
 
-																															  
+### Bootstrap and launch flow
 
 ```
-┌─────────────────┐    1× SSH tunnel     ┌─────────────────┐    N× parallel SSH   ┌──────────────┐
-│  User's laptop  │ ─── per cluster ───→ │  Bastion (per   │ ──── sessions ─────→ │  Compute /   │
-│   (frontend)    │ ←── WS over tunnel ─ │   cluster)      │ ←── (results) ────── │  storage     │
++----------------------------------------------------------------------+
+|  USER'S MACHINE                                                      |
+|                                                                      |
+|  +--------------+    syncs + starts   +---------------------------+  |
+|  |  Bootstrapper|  -----------------> |  Frontend (FastAPI)       |  |
+|  |  (exe or .py)|                     |  - Serves index.html/JS   |  |
+|  |              |  1. try cached creds|  - Reads inventory+config |  |
+|  |              |  2. SFTP sync from  |  - Runs pre-flight checks |  |
+|  |              |     source server   |  - Manages SSH tunnels    |  |
+|  |              |  3. pip install     |  - Streams results to UI  |  |
+|  |              |     (vendor/)       |  - Writes HTML reports    |  |
+|  +--------------+                     +-------------+-------------+  |
+|                                                     |                |
++-----------------------------------------------------+----------------+
+                                                      | 1x SSH tunnel per cluster
+                          +--------------------------+v-----------------------+
+                          |  CLUSTER BASTION                                  |
+                          |  +---------------------------------------------+  |
+                          |  |  Backend (FastAPI, spawned per run)         |  |
+                          |  |  - Receives check list over WebSocket       |  |
+                          |  |  - Runs OCP / CVIM checks locally           |  |
+                          |  |  - Opens N parallel SSH sessions to hosts   |  |
+                          |  |  - Streams results back via WS tunnel       |  |
+                          |  |  - Writes history to /opt/cloud_health/db/  |  |
+                          |  |  - Self-terminates (or cancelled by Stop)   |  |
+                          |  +---------------------------------------------+  |
+                          +---------------------------------------------------+
+                          (one bastion per cluster -- all run in parallel)
+```
+
+### Three-tier SSH architecture
+
+```
+┌─────────────────┐    1x SSH tunnel     ┌─────────────────┐    Nx parallel SSH   ┌──────────────┐
+│  User's laptop  │ ─── per cluster ───> │  Bastion (per   │ ──── sessions ─────> │  Compute /   │
+│   (frontend)    │ <── WS over tunnel ─ │   cluster)      │ <── (results) ─────  │  storage     │
 │                 │                      │  + backend.py   │                      │  hosts       │
 └─────────────────┘                      └─────────────────┘                      └──────────────┘
+     Tier 1                                   Tier 2                                  Tier 3
 ```
 
 1. **Tier 1 (Laptop → Bastion):** One SSH tunnel per cluster, open for the entire run. Results stream back via WebSocket.
@@ -288,8 +325,6 @@ No scripts are installed permanently on any node. All diagnostics run as one-off
 ## Where things live
 
 ### On your machine (user's laptop / Windows workstation)
-																											   
-																										 
 
 | What | Path |
 |---|---|
@@ -325,6 +360,87 @@ No scripts are installed permanently on any node. All diagnostics run as one-off
 
 ---
 
+## File structure
+
+### Source repository (`beta5/`)
+```
+beta5/
+├── main.py                        # Entry point: CLI arg parsing → load config → start frontend
+├── version.txt                    # Tool version (displayed in UI and pre-flight check)
+├── requirements.txt               # Python dependencies for the frontend
+├── config/
+│   ├── config.yaml                # App configuration (parallelism, thresholds, paths, retention)
+│   └── inventory.xlsx             # Cluster inventory (Clusters + Nodes sheets)
+├── bootstrapper/
+│   └── bootstrapper.py            # Credential UI, SFTP sync from source server, launcher
+├── frontend/
+│   ├── app.py                     # FastAPI server: orchestrates runs, tunnels, history, reports
+│   ├── core/
+│   │   ├── config.py              # Config loader (config.yaml → AppSettings)
+│   │   ├── credentials.py         # Encrypted credential cache (Fernet, machine-derived key)
+│   │   ├── history_db.py          # Local preflight audit DB (~/Documents/cloud_health/db/)
+│   │   ├── preflight.py           # SSH + auth + Python availability checks across all clusters
+│   │   ├── reporter_html.py       # HTML report builder with diff badges and summary banner
+│   │   ├── result.py              # Result dataclasses shared between frontend and reporter
+│   │   ├── tunnel_manager.py      # SSH tunnel lifecycle (open / forward / close per cluster)
+│   │   ├── version_sync.py        # Detects when backend version changed → triggers SFTP push
+│   │   └── ws_proxy.py            # WebSocket proxy between browser and bastion backend
+│   └── static/
+│       └── index.html             # Single-page UI (vanilla JS + CSS, no build step)
+└── backend/                       # Pushed to each cluster bastion; runs remotely
+    ├── main.py                    # FastAPI backend: spawned per run, streams results via WS
+    ├── check_runner.py            # Orchestrates check execution and result streaming
+    ├── result.py                  # CheckResult / SectionResult dataclasses
+    ├── ssh_client.py              # Paramiko SSH wrapper used by host checks
+    ├── history_db.py              # Bastion-side run history DB (/opt/cloud_health/db/)
+    ├── version.txt                # Backend version (compared during pre-flight)
+    ├── checks/
+    │   ├── ocp_checks.py          # 27 OpenShift health checks (nodes, etcd, certs, alerts…)
+    │   ├── cvim_checks.py         # 19 Cisco VIM checks (hypervisors, Ceph, MariaDB, RabbitMQ…)
+    │   └── host_checks.py         # 19 physical-host checks (CPU, disk, memory, NTP, kernel…)
+    ├── engine/
+    │   ├── inventory.py           # AppSettings + cluster/node dataclasses (loaded from config)
+    │   └── crypto.py              # Credential decryption on the bastion side
+    └── vendor/                    # Pre-downloaded wheels for offline pip install on bastions
+```
+
+### On the user's machine (`~/Documents/cloud_health/`)
+```
+~/Documents/cloud_health/
+├── credentials.cache              # Fernet-encrypted SSH credentials
+├── .salt                          # Machine-derived salt (credential encryption key)
+├── .meta                          # Last-used host + username (pre-fills the login form)
+├── version.txt                    # Tracks which version was last synced from the source server
+├── program/                       # Full program synced from source server via SFTP
+│   ├── main.py
+│   ├── requirements.txt
+│   ├── frontend/  …
+│   ├── backend/   …
+│   └── vendor/    …               # Offline wheels for frontend dependencies
+├── db/
+│   └── preflight.db               # Pre-flight audit history (SQLite, local only)
+└── log/
+    └── frontend-YYYYMMDD.log      # Frontend application log
+```
+
+### On each cluster bastion
+```
+/opt/cloud_health/                 # Permanent — survives between runs
+├── version.txt                    # Backend version (source of truth for sync decisions)
+├── vendor/                        # Pre-downloaded wheels for backend offline pip install
+└── db/
+    └── history.db                 # Run history (WAL mode SQLite, retained up to history_max_runs)
+
+/tmp/cloud_health/                 # Temporary — recreated each run, cleaned up on exit
+├── backend.py  (+ engine/, checks/)  # Backend engine files pushed by SFTP
+├── vendor/                        # Backend wheels (symlink or copy from /opt)
+├── hc.lock                        # Run lock file (PID + start time, prevents concurrent runs)
+└── log/
+    ├── system_YYYYMMDD.log        # Backend startup, WS events, run lifecycle
+    ├── commands_YYYYMMDD.log      # Every SSH command run by OCP/CVIM checks
+    └── hosts_YYYYMMDD.log         # Every SSH command run against physical hosts
+```
+
 ## Troubleshooting
 
 **The credential prompt opens but won't accept my password.**
@@ -357,8 +473,40 @@ The check doesn't apply to this cluster type (e.g., a CVIM check on an OCP clust
 **Windows SmartScreen blocks the .exe on first launch.**
 Click **More info**, then **Run anyway**. The exe is not code-signed but is safe to run. This prompt appears only once per machine.
 																			
-																						
-																							
+
+**Enabling debug output from the bootstrapper.**
+Set the `CLOUDHEALTH_DEBUG` environment variable to `1`, `true`, or `yes` before launching. This prints verbose SSH/SFTP progress, credential flow, and dependency install steps to the terminal.
+
+Linux / Mac:
+```
+CLOUDHEALTH_DEBUG=1 ./bootstrapper.py
+```
+
+Windows (PowerShell):
+```powershell
+$env:CLOUDHEALTH_DEBUG = "1"
+.\CloudHealth-Bootstrap.exe
+```
+
+Windows (Command Prompt):
+```cmd
+set CLOUDHEALTH_DEBUG=1
+CloudHealth-Bootstrap.exe
+```
+
+Debug output includes:
+- Which cached credentials were tried and whether they succeeded
+- SSH connection attempts and version comparisons
+- SFTP sync progress (which version is remote vs. local)
+- `pip install` output from the vendor directory
+- The final `main.py` launch command
+
+---
+
+Known gaps:
+- Cluster selection resets on page reload — `last_selected_clusters` is not persisted to `config.yaml`.
+- 17 stale "Beta4" / "Beta 4" references remain across 10+ source files; `version.txt` still reads `4.1.0`.
+- The Windows bootstrapper currently requires Python to be installed on the user's machine. A self-contained `.exe` is pending (P1.2).
 
 ---
 
