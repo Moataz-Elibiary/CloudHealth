@@ -1,5 +1,5 @@
 """
-Beta4 ssh_client.py
+Beta5 ssh_client.py
 
 Two clients:
   LocalClient  — runs commands locally on the bastion via asyncio.create_subprocess_shell.

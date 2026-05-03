@@ -1,5 +1,5 @@
 """
-Beta4 frontend/app.py
+Beta5 frontend/app.py
 
 Combines:
   - Beta3: /api/checks, /api/config GET+POST, check-selection sidebar support
@@ -41,7 +41,7 @@ log = logging.getLogger("frontend.app")
 
 
 # ── App ───────────────────────────────────────────────────────────────────────
-app = FastAPI(title="CloudHealth Beta4")
+app = FastAPI(title="CloudHealth Beta5")
 app.mount("/static", StaticFiles(directory=str(BASE_PATH / "static")), name="static")
 
 tunnel_mgr = TunnelManager()
@@ -217,6 +217,19 @@ async def api_config_post(request: Request):
 async def api_version():
     ver = VERSION_FILE.read_text().strip() if VERSION_FILE.exists() else "dev"
     return {"version": ver}
+
+
+def _persist_selected_clusters(selected: list) -> None:
+    """Write last_selected_clusters back to config.yaml so the UI can restore it on reload."""
+    try:
+        config_path = _resolve_config_path()
+        raw = yaml.safe_load(config_path.read_text()) or {} if config_path.exists() else {}
+        raw["last_selected_clusters"] = selected or []
+        config_path.parent.mkdir(parents=True, exist_ok=True)
+        with open(config_path, "w") as f:
+            yaml.dump(raw, f, default_flow_style=False, sort_keys=False)
+    except Exception:
+        pass
 
 
 @app.get("/api/history")
@@ -414,6 +427,8 @@ async def ui_websocket(websocket: WebSocket):
                 skip_preflight   = bool(message.get("skip_preflight", False))
                 ignore_failures  = bool(message.get("ignore_failures", False))
                 selected_clusters = message.get("selected_clusters")  # None = all
+                asyncio.create_task(asyncio.to_thread(
+                    _persist_selected_clusters, selected_clusters or []))
                 active_run = asyncio.create_task(
                     _run_guarded(websocket, enabled,
                                  skip_preflight=skip_preflight,
@@ -622,13 +637,6 @@ async def _run_all_clusters(
     config_path  = _resolve_config_path()
     loader       = ConfigLoader(str(config_path))
     app_settings = loader.get_app_settings()
-
-    # Inject history_max_runs into app_settings so it travels to the backend.
-    try:
-        _raw_cfg = yaml.safe_load(config_path.read_text()) or {}
-        app_settings.history_max_runs = int(_raw_cfg.get("history_max_runs", 200))
-    except Exception:
-        app_settings.history_max_runs = 200
 
     if enabled_checks is not None:
         app_settings.enabled_checks = set(enabled_checks)

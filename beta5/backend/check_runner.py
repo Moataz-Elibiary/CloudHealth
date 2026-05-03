@@ -1,5 +1,5 @@
 """
-Beta4 CheckRunner
+Beta5 CheckRunner
 
 Key fix over both betas:
   Sections are wired (_queue, _cluster_name) BEFORE each check function

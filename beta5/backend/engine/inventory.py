@@ -1,4 +1,4 @@
-"""Beta4 core/inventory.py — Beta3's robust inventory loader verbatim."""
+"""Beta5 core/inventory.py — Beta3's robust inventory loader verbatim."""
 from __future__ import annotations
 import os, re, yaml, pandas as pd
 from dataclasses import dataclass, field
@@ -154,10 +154,15 @@ class AppSettings:
     load_ratio_warn:   float = 2.0
     load_ratio_fail:   float = 5.0
     swap_used_pct_warn:int   = 30
-    enabled_checks:    Optional[Set[str]] = None
-    verbose:           bool  = False
-    max_log_files:     int   = 5
-    history_max_runs:  int   = 200
+    enabled_checks:           Optional[Set[str]] = None
+    verbose:                  bool  = False
+    max_log_files:            int   = 5
+    history_max_runs:         int   = 200
+    cert_warn_days:           int   = 30
+    restart_warn_threshold:   int   = 5
+    restart_fail_threshold:   int   = 20
+    pod_age_min_warn:         int   = 5
+    pod_age_min_fail:         int   = 2
 
     @classmethod
     def from_dict(cls, data: dict) -> "AppSettings":
@@ -177,10 +182,15 @@ class AppSettings:
             load_ratio_warn   = data.get("load_ratio_warn",    2.0),
             load_ratio_fail   = data.get("load_ratio_fail",    5.0),
             swap_used_pct_warn= data.get("swap_used_pct_warn", 30),
-            enabled_checks    = set(ec) if ec else None,
-            verbose           = data.get("verbose",            False),
-            max_log_files     = data.get("max_log_files",      5),
-            history_max_runs  = data.get("history_max_runs",   200),
+            enabled_checks           = set(ec) if ec else None,
+            verbose                  = data.get("verbose",                  False),
+            max_log_files            = data.get("max_log_files",            5),
+            history_max_runs         = data.get("history_max_runs",         200),
+            cert_warn_days           = data.get("cert_warn_days",           30),
+            restart_warn_threshold   = data.get("restart_warn_threshold",   5),
+            restart_fail_threshold   = data.get("restart_fail_threshold",   20),
+            pod_age_min_warn         = data.get("pod_age_min_warn",         5),
+            pod_age_min_fail         = data.get("pod_age_min_fail",         2),
         )
 
     def to_dict(self) -> dict:
@@ -200,10 +210,15 @@ class AppSettings:
             "load_ratio_fail":   self.load_ratio_fail,
             "swap_used_pct_warn":self.swap_used_pct_warn,
             # Always serialise as sorted list for JSON compatibility
-            "enabled_checks":    sorted(self.enabled_checks) if self.enabled_checks else None,
-            "verbose":           self.verbose,
-            "max_log_files":     self.max_log_files,
-            "history_max_runs":  self.history_max_runs,
+            "enabled_checks":          sorted(self.enabled_checks) if self.enabled_checks else None,
+            "verbose":                 self.verbose,
+            "max_log_files":           self.max_log_files,
+            "history_max_runs":        self.history_max_runs,
+            "cert_warn_days":          self.cert_warn_days,
+            "restart_warn_threshold":  self.restart_warn_threshold,
+            "restart_fail_threshold":  self.restart_fail_threshold,
+            "pod_age_min_warn":        self.pod_age_min_warn,
+            "pod_age_min_fail":        self.pod_age_min_fail,
         }
 
 
@@ -241,8 +256,14 @@ class InventoryLoader:
             load_ratio_warn   = thr.get("load_warn",          thr.get("load_ratio_warn",    2.0)),
             load_ratio_fail   = thr.get("load_fail",          thr.get("load_ratio_fail",    5.0)),
             swap_used_pct_warn= thr.get("swap_warn",          thr.get("swap_used_pct_warn",  30)),
-            enabled_checks    = ec,
-            max_log_files     = cfg.get("max_log_files", 5),
+            enabled_checks           = ec,
+            max_log_files            = cfg.get("max_log_files",            5),
+            history_max_runs         = cfg.get("history_max_runs",         200),
+            cert_warn_days           = cfg.get("cert_warn_days",           30),
+            restart_warn_threshold   = cfg.get("restart_warn_threshold",   5),
+            restart_fail_threshold   = cfg.get("restart_fail_threshold",   20),
+            pod_age_min_warn         = cfg.get("pod_age_min_warn",         5),
+            pod_age_min_fail         = cfg.get("pod_age_min_fail",         2),
         )
 
     def load_inventory(self, excel_filename: str) -> List[ClusterConfig]:

@@ -1,5 +1,5 @@
 """
-Beta4 backend/main.py
+Beta5 backend/main.py
 
 Improvements over both betas:
   - Atomic lock: os.O_CREAT | os.O_EXCL (no TOCTOU race)
@@ -372,7 +372,7 @@ async def _heartbeat_monitor():
         await asyncio.sleep(5)
         elapsed = time.monotonic() - _LAST_ACTIVITY
         if elapsed > _HEARTBEAT_TIMEOUT:
-            print(f"[beta4] Heartbeat timeout ({_HEARTBEAT_TIMEOUT}s). Shutting down.",
+            print(f"[beta5] Heartbeat timeout ({_HEARTBEAT_TIMEOUT}s). Shutting down.",
                   file=sys.stderr)
             _release_lock()
             os.kill(os.getpid(), signal.SIGINT)
@@ -396,7 +396,7 @@ async def lifespan(_app: FastAPI):
         _release_lock()
 
 
-app = FastAPI(title="CloudHealth Beta4 Backend", lifespan=lifespan)
+app = FastAPI(title="CloudHealth Beta5 Backend", lifespan=lifespan)
 
 
 def _handle_shutdown(*_):
@@ -553,7 +553,7 @@ if __name__ == "__main__":
 
     acquired, owner_pid = _acquire_lock()
     if not acquired:
-        print(f"[beta4] Backend already running (PID {owner_pid}).",
+        print(f"[beta5] Backend already running (PID {owner_pid}).",
               file=sys.stderr)
         sys.exit(1)
 

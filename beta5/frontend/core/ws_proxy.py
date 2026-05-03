@@ -1,5 +1,5 @@
 """
-Beta4 frontend/core/ws_proxy.py
+Beta5 frontend/core/ws_proxy.py
 
 Bug fixed vs Beta3: reconnect path now always sends get_results first
 and only falls back to start_checks if the backend responds no_results.
