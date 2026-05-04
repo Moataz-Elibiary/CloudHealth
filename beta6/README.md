@@ -1,23 +1,8 @@
-# CloudHealth — Beta 6
+# CloudHealth
 
 **A fully headless cluster health-check tool for central Linux servers.**
 
-Beta 6 is a ground-up rework of the architecture. Instead of running a frontend on your laptop and pushing a backend to each bastion, Beta 6 runs entirely from a single central Linux server that SSHes directly to every bastion. There is no browser UI, no WebSocket streaming, no bootstrapper, and no code pushed to any bastion. Everything runs in one place, on one schedule.
-
----
-
-## What changed from Beta 5
-
-| Area | Beta 5 | Beta 6 |
-|---|---|---|
-| **Execution model** | Frontend on laptop + backend pushed to each bastion | Single process on central Linux server |
-| **UI** | Browser (FastAPI + WebSocket) | CLI only (`run.py`) |
-| **Inventory** | Excel file (`inventory.xlsx`) | YAML file (`inventory.yaml`) |
-| **Dependencies** | pandas, openpyxl, FastAPI, websockets, … | `paramiko` + `PyYAML` only |
-| **History DB** | One SQLite DB per bastion | One central SQLite DB on the server |
-| **Reports** | Written to user's machine | Written to server's output directory |
-| **Python required on bastions** | Yes | No |
-| **Scheduling** | Manual (browser) | cron-friendly CLI |
+CloudHealth runs entirely from a single central Linux server that SSHes directly to every bastion. There is no browser UI, no WebSocket streaming, no bootstrapper, and no code pushed to any bastion. Everything runs in one place, on one schedule.
 
 ---
 
@@ -49,8 +34,8 @@ pip install paramiko PyYAML
 
 ```bash
 mkdir -p ~/cloud_health/{config,reports,logs,db}
-cp beta6/config/config.yaml  ~/cloud_health/config/config.yaml
-cp beta6/config/inventory.yaml ~/cloud_health/config/inventory.yaml
+cp config/config.yaml   ~/cloud_health/config/config.yaml
+cp config/inventory.yaml ~/cloud_health/config/inventory.yaml
 ```
 
 Edit `config.yaml` for your paths and thresholds, then populate `inventory.yaml` with your clusters.
@@ -58,7 +43,6 @@ Edit `config.yaml` for your paths and thresholds, then populate `inventory.yaml`
 ### 3. Run
 
 ```bash
-cd beta6
 python run.py
 ```
 
@@ -329,7 +313,6 @@ No code is pushed to any bastion. No Python is required on bastions or nodes.
 ## File structure
 
 ```
-beta6/
 ├── run.py                          # Entry point and CLI
 ├── version.txt                     # Tool version
 ├── requirements.txt                # Python dependencies (paramiko, PyYAML)
