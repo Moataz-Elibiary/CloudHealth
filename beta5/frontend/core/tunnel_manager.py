@@ -8,10 +8,9 @@ Improvements over both betas:
     before sending to_backend_dict
   - Pure paramiko direct-tcpip channel (no socketserver dependency)
 """
-from __future__ import annotations
 import asyncio, logging, posixpath, select, socket, threading, time
 from pathlib import Path
-from typing import Optional
+from typing import List, Optional
 
 import paramiko
 
@@ -111,7 +110,7 @@ def _forward_loop(transport: paramiko.Transport,
 class TunnelManager:
 
     def __init__(self):
-        self._handles: list[TunnelHandle] = []
+        self._handles: List[TunnelHandle] = []
 
     async def connect_and_tunnel(
         self,

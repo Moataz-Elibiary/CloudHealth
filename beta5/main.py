@@ -1,6 +1,5 @@
 #!/usr/bin/env python3
 """CloudHealth Beta 5 — entry point."""
-from __future__ import annotations
 import argparse, logging, sys
 from pathlib import Path
 

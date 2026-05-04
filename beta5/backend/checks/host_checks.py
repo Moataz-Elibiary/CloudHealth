@@ -1,5 +1,4 @@
 """Host-level health checks — SSH directly to physical nodes (RHEL/RHCOS)."""
-from __future__ import annotations
 import asyncio, logging, os, re, tempfile
 from datetime import datetime
 from pathlib import Path

@@ -9,7 +9,6 @@ Health-check run history is now owned by each bastion backend
 (at /opt/cloud_health/db/history.db) and streamed to the frontend
 via the all_done / cancelled WS events.
 """
-from __future__ import annotations
 import logging
 import sqlite3
 from datetime import datetime

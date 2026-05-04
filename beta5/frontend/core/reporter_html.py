@@ -4,7 +4,6 @@ Design: Refined industrial — charcoal + amber accent, monospaced precision.
 Dual-mode: interactive browser report + email-safe inline-style version.
 Filters work correctly: only show matching items, not just highlight them.
 """
-from __future__ import annotations
 from datetime import datetime
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple

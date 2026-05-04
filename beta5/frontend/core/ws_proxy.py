@@ -6,7 +6,6 @@ and only falls back to start_checks if the backend responds no_results.
 This prevents the duplicate-run bug where a reconnect could fire a
 second check run against a cluster that already completed.
 """
-from __future__ import annotations
 import asyncio, json
 import websockets
 from fastapi import WebSocket

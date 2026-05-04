@@ -9,7 +9,6 @@ Key fix over both betas:
 Architecture: one CheckRunner per cluster per WebSocket connection.
 The on_headline and on_result callbacks are async; the runner awaits them.
 """
-from __future__ import annotations
 import asyncio
 import logging
 from datetime import datetime

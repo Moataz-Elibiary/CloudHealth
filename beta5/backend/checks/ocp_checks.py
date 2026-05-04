@@ -1,5 +1,4 @@
 """OCP Health Checks — comprehensive 20+ categories via oc CLI on bastion SSH."""
-from __future__ import annotations
 import asyncio, json, re
 from datetime import datetime
 from typing import List, Optional

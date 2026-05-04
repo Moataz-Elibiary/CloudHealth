@@ -4,7 +4,6 @@ Beta5 frontend/core/config.py
 Uses Beta3's InventoryLoader (pandas + HEADER_ALIASES) exposed via
 a thin ConfigLoader subclass.
 """
-from __future__ import annotations
 import sys
 from pathlib import Path
 from typing import List, Optional

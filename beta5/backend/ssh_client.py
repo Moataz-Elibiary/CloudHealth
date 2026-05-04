@@ -12,7 +12,6 @@ Two clients:
 This split is the correct architecture: cluster-level checks are local,
 host-level checks require real SSH to each node from the bastion.
 """
-from __future__ import annotations
 import asyncio
 import time
 from dataclasses import dataclass

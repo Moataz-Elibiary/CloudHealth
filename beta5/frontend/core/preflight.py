@@ -11,7 +11,6 @@ Each cluster produces a PreflightResult row. The schema is intentionally
 flat / dict-friendly so that P3.1 (history DB) can persist these rows
 directly with no transformation — see PreflightResult.to_dict().
 """
-from __future__ import annotations
 import asyncio, logging, time
 from dataclasses import dataclass, asdict
 from datetime import datetime, timezone

@@ -5,7 +5,6 @@ SFTPs the entire program directory if versions differ.
 Also checks each cluster bastion's backend version and pushes if needed
 (this is handled by tunnel_manager during tunnel setup).
 """
-from __future__ import annotations
 import logging
 import os
 import sys

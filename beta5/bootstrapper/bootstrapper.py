@@ -5,7 +5,6 @@ Compiled to a single exe with PyInstaller — never changes after first release.
 Steps: try cached creds → SSH version check → SFTP sync if needed → launch main.py
 On auth failure: re-prompt user (up to MAX_ATTEMPTS times), then exit with error.
 """
-from __future__ import annotations
 import hashlib, http.server, json, os, subprocess, sys, threading, webbrowser
 from pathlib import Path
 from typing import Optional

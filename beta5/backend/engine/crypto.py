@@ -7,7 +7,6 @@ files share the same salt, enabling rainbow table precomputation.
 
 480,000 PBKDF2-SHA256 iterations (OWASP 2023 recommendation).
 """
-from __future__ import annotations
 import base64, os
 from pathlib import Path
 from cryptography.fernet import Fernet

@@ -1,5 +1,4 @@
 """Beta5 core/inventory.py — Beta3's robust inventory loader verbatim."""
-from __future__ import annotations
 import os, re, yaml, pandas as pd
 from dataclasses import dataclass, field
 from pathlib import Path

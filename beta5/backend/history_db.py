@@ -8,7 +8,6 @@ after the run finishes.  The frontend receives the data via two paths:
   Refresh   : frontend SSHes to each bastion and runs an inline Python
               query script against this file (no backend process required).
 """
-from __future__ import annotations
 import logging
 import sqlite3
 from datetime import datetime

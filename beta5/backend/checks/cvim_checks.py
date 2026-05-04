@@ -1,5 +1,4 @@
 """CVIM Health Checks — comprehensive OpenStack/Cisco VIM checks via SSH to installer."""
-from __future__ import annotations
 import asyncio, re
 from datetime import datetime
 from typing import List, Optional

@@ -9,7 +9,6 @@ Combines:
   - Fixed: dynamic port allocation via allocate_local_port()
   - Fixed: credential sanitisation — only sends SSH creds to the matching bastion
 """
-from __future__ import annotations
 import asyncio, dataclasses, json, logging, os, sys, threading, uuid, webbrowser
 from datetime import datetime, timezone
 from pathlib import Path

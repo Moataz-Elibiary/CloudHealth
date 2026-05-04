@@ -11,7 +11,6 @@ Improvements over both betas:
   - Cross-platform runtime dir via CLOUD_HEALTH_RUNTIME_DIR env var
   - CheckRunner receives subscriber_queue for per-item streaming
 """
-from __future__ import annotations
 import atexit
 import argparse
 import asyncio
@@ -25,6 +24,7 @@ import time
 from contextlib import asynccontextmanager
 from datetime import datetime
 from pathlib import Path
+from typing import Optional, Tuple
 
 import uvicorn
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
@@ -119,10 +119,10 @@ _LAST_ACTIVITY   = time.monotonic()
 _CHECKS_RUNNING  = False
 _LAST_RESULT     = None
 _HEARTBEAT_TIMEOUT = 60.0
-_EVENT_HISTORY:  list[dict] = []
+_EVENT_HISTORY   = []           # type: list
 # Per-connection subscriber queues — supports multiple simultaneous browser tabs
-_ACTIVE_SUBSCRIBERS: set[asyncio.Queue] = set()
-_RUN_TASK: asyncio.Task | None = None
+_ACTIVE_SUBSCRIBERS = set()    # type: set
+_RUN_TASK = None               # type: Optional[asyncio.Task]
 # Holds the current CheckRunner so a cancel can reach in and snapshot
 # partial results when the task is torn down.
 _ACTIVE_RUNNER = None
@@ -130,7 +130,7 @@ _ACTIVE_RUNNER = None
 
 # ── Lock helpers ──────────────────────────────────────────────────────────────
 
-def _read_lock_payload() -> dict | None:
+def _read_lock_payload() -> Optional[dict]:
     try:
         if not LOCK_FILE.exists():
             return None
@@ -154,7 +154,7 @@ def _pid_exists(pid: int) -> bool:
     return True
 
 
-def _acquire_lock() -> tuple[bool, int | None]:
+def _acquire_lock() -> Tuple[bool, Optional[int]]:
     """Atomic lock creation using O_CREAT|O_EXCL — no TOCTOU race."""
     global _LOCK_ACQUIRED
     RUNTIME_DIR.mkdir(parents=True, exist_ok=True)
@@ -220,7 +220,7 @@ def _clear_results():
     RESULTS_FILE.unlink(missing_ok=True)
 
 
-def _load_results() -> dict | None:
+def _load_results() -> Optional[dict]:
     global _LAST_RESULT
     if _LAST_RESULT is not None:
         return _LAST_RESULT
@@ -342,7 +342,7 @@ async def _run_checks_task(config: dict, subscriber_queue: asyncio.Queue):
         _RUN_CONTEXT.user   = "-"
 
 
-def _snapshot_partial_summary(runner) -> dict | None:
+def _snapshot_partial_summary(runner) -> Optional[dict]:
     """Build a ClusterResult-shaped dict from whatever sections the runner
     has accumulated so far. Used by the cancel path so partial results aren't
     thrown away."""
