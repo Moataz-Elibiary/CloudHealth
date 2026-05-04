@@ -375,9 +375,9 @@ class OCPHealthChecker:
         flagged = []
 
         def age_min(a: str) -> int:
-            d = int(m.group(1)) if (m := re.search(r"(\d+)d", a)) else 0
-            h = int(m.group(1)) if (m := re.search(r"(\d+)h", a)) else 0
-            mi= int(m.group(1)) if (m := re.search(r"(\d+)m", a)) else 0
+            _md = re.search(r"(\d+)d", a); d  = int(_md.group(1)) if _md else 0
+            _mh = re.search(r"(\d+)h", a); h  = int(_mh.group(1)) if _mh else 0
+            _mm = re.search(r"(\d+)m", a); mi = int(_mm.group(1)) if _mm else 0
             return d*1440 + h*60 + mi
 
         for line in lines:
