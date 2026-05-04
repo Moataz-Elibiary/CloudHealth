@@ -7,7 +7,7 @@ Filters work correctly: only show matching items, not just highlight them.
 from __future__ import annotations
 from datetime import datetime
 from pathlib import Path
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional
 
 from core.result import ClusterResult, SectionResult, Status
 Section = SectionResult

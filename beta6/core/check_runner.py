@@ -15,8 +15,6 @@ from __future__ import annotations
 import asyncio
 import logging
 from datetime import datetime
-from typing import Optional, Set
-
 from core.result import ClusterResult, SectionResult
 from core.ssh_client import BastionClient
 from core.inventory import AppSettings, ClusterConfig, NodeConfig
@@ -51,10 +49,9 @@ class CheckRunner:
         cluster_config: dict,
         app_settings:   dict,
     ):
-        self.cluster        = ClusterConfig.from_dict(cluster_config)
-        self.app            = AppSettings.from_dict(app_settings)
-        self.enabled_checks = self.app.enabled_checks
-        self.log = logging.getLogger(f"cloudhealth.{self.cluster.name}")
+        self.cluster = ClusterConfig.from_dict(cluster_config)
+        self.app     = AppSettings.from_dict(app_settings)
+        self.log     = logging.getLogger(f"cloudhealth.{self.cluster.name}")
         self.con = _NullConsole()
 
         self.bastion = BastionClient(

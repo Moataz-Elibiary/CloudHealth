@@ -2,7 +2,7 @@
 from __future__ import annotations
 import asyncio, json, re
 from datetime import datetime
-from typing import List, Optional
+from typing import List
 import logging
 
 from core.inventory import ClusterConfig, AppSettings as AppConfig, resolve_threshold

@@ -6,7 +6,6 @@ Inventory is now a plain YAML file (inventory.yaml) on the central server.
 pandas and openpyxl are no longer required.
 """
 from __future__ import annotations
-import os
 import yaml
 from dataclasses import dataclass, field
 from pathlib import Path
