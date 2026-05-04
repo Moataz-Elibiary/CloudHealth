@@ -41,7 +41,7 @@ class OCPHealthChecker:
         return [l for l in out.splitlines() if l.strip()]
 
     def _should(self, cat: str) -> bool:
-        return self.app.enabled_checks is None or cat in self.app.enabled_checks
+        return self.app.enabled_ocp_checks is None or cat in self.app.enabled_ocp_checks
 
     # ── section runner ────────────────────────────────────────────────────────
 

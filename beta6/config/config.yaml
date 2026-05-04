@@ -16,8 +16,9 @@ log_dir:       ~/cloud_health/logs
 db_path:       ~/cloud_health/db/history.db
 inventory_file: ~/cloud_health/config/inventory.yaml
 
-# ── Logging ───────────────────────────────────────────────────────────────────
-max_log_files:  5          # log files to keep per type before rotation
+# ── Logging & reports ─────────────────────────────────────────────────────────
+max_log_files:    5        # newest N log files to keep per prefix (system_, commands_, host-)
+max_report_files: 10       # newest N report files to keep per type (full + email)
 
 # ── History ───────────────────────────────────────────────────────────────────
 history_max_runs: 200      # number of past runs to retain in the central DB
@@ -38,9 +39,19 @@ restart_fail_threshold:  20   # pod restart count that triggers a FAIL
 pod_age_min_warn:         5   # warn if a pod is younger than this many minutes
 pod_age_min_fail:         2   # fail if a pod is younger than this many minutes
 
-# ── Check filter (uncomment to restrict which categories run by default) ──────
-# enabled_checks:
+# ── Check filters (uncomment to restrict which categories run by default) ─────
+# enabled_ocp_checks:
 #   - nodes
 #   - etcd
 #   - pods
+#   - operators
+
+# enabled_cvim_checks:
+#   - hypervisors
+#   - vms
+#   - ceph
+
+# enabled_host_checks:
 #   - disk
+#   - memory
+#   - services

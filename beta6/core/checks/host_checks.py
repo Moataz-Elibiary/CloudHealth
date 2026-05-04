@@ -3,26 +3,36 @@ from __future__ import annotations
 import asyncio, logging, re
 from datetime import datetime
 from pathlib import Path
-from typing import List
+from typing import List, Optional
 
-from core.inventory import NodeConfig, AppSettings as AppConfig, resolve_threshold
-from core.result import SectionResult as Section, Status
-from core.ssh_client import NodeClient
-
-import paramiko
+from core.inventory import NodeConfig, ClusterConfig, AppSettings as AppConfig, resolve_threshold
+from core.result import SectionResult as Section
+from core.ssh_client import NodeClient as SSHClient
 
 
 class HostHealthChecker:
     """Runs all host-level diagnostics in parallel on each NodeConfig."""
     def __init__(self, nodes: List[NodeConfig], app: AppConfig,
                  logger=None, console=None, cluster_name: str = "",
-                 bastion_transport=None):
+                 bastion_transport=None, cluster: Optional[ClusterConfig] = None):
         self.nodes             = nodes
         self.app               = app
         self.log               = logger
         self.con               = console
-        self.cluster           = cluster_name
+        self.cluster_name      = cluster_name
+        self.cluster           = cluster          # for per-cluster threshold overrides
         self.bastion_transport = bastion_transport  # paramiko.Transport for ProxyJump
+
+    def _thr(self, attr: str):
+        """Return per-cluster threshold override if set, else global AppSettings value."""
+        if self.cluster is not None:
+            v = getattr(self.cluster, attr, None)
+            if v is not None:
+                return v
+        return getattr(self.app, attr)
+
+    def _should(self, cat: str) -> bool:
+        return self.app.enabled_host_checks is None or cat in self.app.enabled_host_checks
 
     # ── per-host log file ─────────────────────────────────────────────────────
 
@@ -35,11 +45,11 @@ class HostHealthChecker:
         max_files = getattr(self.app, "max_log_files", 5)
         old = sorted(log_dir.glob(f"host-{safe_ip}_*.log"),
                      key=lambda p: p.stat().st_mtime)
-        while len(old) >= max_files:
+        while len(old) > max_files:
             old.pop(0).unlink(missing_ok=True)
 
         log_file = log_dir / f"host-{safe_ip}_{datetime.now().strftime('%Y%m%d_%H%M%S')}.log"
-        logger   = logging.getLogger(f"host.{self.cluster}.{ip}")
+        logger   = logging.getLogger(f"host.{self.cluster_name}.{ip}")
         logger.handlers.clear()
         handler  = logging.FileHandler(log_file, encoding="utf-8")
         handler.setFormatter(logging.Formatter(
@@ -58,7 +68,7 @@ class HostHealthChecker:
         sections = []
         for node, res in zip(self.nodes, results):
             if isinstance(res, Exception):
-                s = Section(f"Host: {node}", "host", start_time=datetime.now())
+                s = Section(f"Host: {node.ip}", "host", start_time=datetime.now())
                 s.error(f"Exception: {res}")
                 s.end_time = datetime.now()
                 sections.append(s)
@@ -78,7 +88,7 @@ class HostHealthChecker:
         sec._commands_logger = host_logger
 
         if self.con: self.con.section_start(f"Host: {node.ip}")
-        ssh = NodeClient(
+        ssh = SSHClient(
             host              = node.ip,
             username          = node.username,
             password          = node.password,
@@ -97,28 +107,30 @@ class HostHealthChecker:
             host_logger.handlers.clear()
             return sec
         try:
-            # Run all host checks concurrently on this node
-            await asyncio.gather(
-                self._uptime(ssh, sec),
-                self._os_info(ssh, sec),
-                self._cpu(ssh, sec),
-                self._memory(ssh, sec),
-                self._disk(ssh, sec),
-                self._ecc(ssh, sec),
-                self._network_interfaces(ssh, sec),
-                self._bond_status(ssh, sec),
-                self._sriov(ssh, sec),
-                self._kernel_messages(ssh, sec),
-                self._systemd_services(ssh, sec),
-                self._ntp(ssh, sec),
-                self._pcie_errors(ssh, sec),
-                self._firmware_versions(ssh, sec),
-                self._numa_topology(ssh, sec),
-                self._hugepages(ssh, sec),
-                self._selinux(ssh, sec),
-                self._firewall(ssh, sec),
-                self._open_ports(ssh, sec),
-            )
+            # Build check list, filtered by enabled_host_checks if set
+            all_checks = [
+                ("uptime",       self._uptime),
+                ("os_info",      self._os_info),
+                ("cpu",          self._cpu),
+                ("memory",       self._memory),
+                ("disk",         self._disk),
+                ("ecc",          self._ecc),
+                ("host_network", self._network_interfaces),
+                ("bond",         self._bond_status),
+                ("sriov",        self._sriov),
+                ("kernel_msgs",  self._kernel_messages),
+                ("services",     self._systemd_services),
+                ("ntp",          self._ntp),
+                ("pcie",         self._pcie_errors),
+                ("firmware",     self._firmware_versions),
+                ("numa",         self._numa_topology),
+                ("hugepages",    self._hugepages),
+                ("selinux",      self._selinux),
+                ("firewall",     self._firewall),
+                ("ports",        self._open_ports),
+            ]
+            await asyncio.gather(*[fn(ssh, sec)
+                                   for cat, fn in all_checks if self._should(cat)])
         except Exception as e:
             sec.error(f"Host check error: {e}")
         finally:
@@ -152,9 +164,9 @@ class HostHealthChecker:
             l1, l5, l15 = float(load_m.group(1)), float(load_m.group(2)), float(load_m.group(3))
             ratio = l1 / cpus
             msg = f"Load avg: {l1}/{l5}/{l15} on {cpus} CPU(s) — ratio {ratio:.2f}"
-            if ratio >= self.app.load_ratio_fail:
+            if ratio >= self._thr("load_ratio_fail"):
                 sec.fail(msg)
-            elif ratio >= self.app.load_ratio_warn:
+            elif ratio >= self._thr("load_ratio_warn"):
                 sec.warn(msg)
             else:
                 sec.pass_(msg)
@@ -213,9 +225,9 @@ class HostHealthChecker:
                     used_pct = round(used_mb * 100 / total_mb) if total_mb else 0
                     msg = (f"RAM: {total_mb//1024}G total, {used_mb//1024}G used ({used_pct}%), "
                            f"{avail_mb//1024}G available")
-                    if used_pct >= self.app.mem_used_pct_fail:
+                    if used_pct >= self._thr("mem_used_pct_fail"):
                         sec.fail(msg)
-                    elif used_pct >= self.app.mem_used_pct_warn:
+                    elif used_pct >= self._thr("mem_used_pct_warn"):
                         sec.warn(msg)
                     else:
                         sec.pass_(msg)
@@ -230,7 +242,7 @@ class HostHealthChecker:
                     if total_s > 0:
                         pct_s = round(used_s * 100 / total_s)
                         (sec.warn(f"Swap {used_s}MB/{total_s}MB used ({pct_s}%)")
-                         if pct_s >= self.app.swap_used_pct_warn else
+                         if pct_s >= self._thr("swap_used_pct_warn") else
                          sec.pass_(f"Swap: {pct_s}% used"))
                 except (ValueError, ZeroDivisionError):
                     pass
@@ -253,7 +265,7 @@ class HostHealthChecker:
     #  Disk utilization
     # ══════════════════════════════════════════════════════════════════════════
     async def _disk(self, ssh, sec):
-        thr = self.app.disk_threshold
+        thr = self._thr("disk_threshold")
         r = await self._r(ssh, sec,
             "df -h --output=source,pcent,target 2>/dev/null | "
             "grep -vE '^tmpfs|^devtmpfs|^Filesystem|^overlay|^shm'")
@@ -511,7 +523,7 @@ class HostHealthChecker:
         r2 = await self._r(ssh, sec,
             "for d in $(ls /sys/class/net/ | grep -vE '^lo|^vir|^veth|^docker' | head -4); do "
             "  ethtool -i $d 2>/dev/null | grep -E 'driver|firmware-version' | "
-            "  awk -v if=$d '{print if\": \"$0}'; "
+            "  awk -v iface=$d '{print iface \": \" $0}'; "
             "done | head -12 || true", timeout=20)
         if r2.out.strip():
             sec.info("NIC drivers/firmware", detail=r2.out.strip()[:400])

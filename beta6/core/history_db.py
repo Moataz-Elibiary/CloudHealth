@@ -136,6 +136,7 @@ def write_run(
         _prune(conn, max_runs)
     except Exception:
         log.exception("history_db.write_run failed for run_id=%s", run_id)
+        raise
     finally:
         conn.close()
 

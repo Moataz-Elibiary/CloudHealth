@@ -105,17 +105,28 @@ def _setup_logging(log_dir: str, verbose: bool = False):
     cfh.setFormatter(logging.Formatter("%(asctime)s\n%(message)s"))
     cmd_logger.addHandler(cfh)
 
-    return _rotate_logs(p, max_files=None)   # rotation done separately per flag
+    # rotation is performed at end of run via _rotate_logs / _rotate_reports
 
 
 def _rotate_logs(log_dir: Path, max_files: int):
     """Keep only the newest max_files of each log type."""
-    if max_files is None:
+    if not max_files:
         return
     for prefix in ("system_", "commands_", "host-"):
         files = sorted(log_dir.glob(f"{prefix}*.log"),
                        key=lambda p: p.stat().st_mtime)
-        while len(files) >= max_files:
+        while len(files) > max_files:
+            files.pop(0).unlink(missing_ok=True)
+
+
+def _rotate_reports(out_dir: Path, max_files: int):
+    """Keep only the newest max_files of each report type (full + email)."""
+    if not max_files:
+        return
+    for prefix in ("healthcheck_report_", "healthcheck_email_"):
+        files = sorted(out_dir.glob(f"{prefix}*.html"),
+                       key=lambda p: p.stat().st_mtime)
+        while len(files) > max_files:
             files.pop(0).unlink(missing_ok=True)
 
 
@@ -286,9 +297,9 @@ def main() -> int:
         return EXIT_CONFIG
 
     # CLI overrides
-    if args.output_dir: app.output_dir     = args.output_dir
-    if args.parallel:   app.parallel_limit = args.parallel
-    if args.verbose:    app.verbose        = True
+    if args.output_dir:          app.output_dir     = args.output_dir
+    if args.parallel is not None: app.parallel_limit = args.parallel
+    if args.verbose:             app.verbose        = True
 
     # ── logging ────────────────────────────────────────────────────────────────
     _setup_logging(app.log_dir, verbose=app.verbose)
@@ -354,15 +365,12 @@ def main() -> int:
             return EXIT_CONFIG
 
     # ── enabled checks filter ──────────────────────────────────────────────────
-    if args.ocp_checks or args.cvim_checks or args.host_checks:
-        enabled: set = set()
-        if args.ocp_checks:
-            enabled.update(c.strip() for c in args.ocp_checks.split(","))
-        if args.cvim_checks:
-            enabled.update(c.strip() for c in args.cvim_checks.split(","))
-        if args.host_checks:
-            enabled.update(c.strip() for c in args.host_checks.split(","))
-        app.enabled_checks = enabled
+    if args.ocp_checks:
+        app.enabled_ocp_checks  = {c.strip() for c in args.ocp_checks.split(",")  if c.strip()}
+    if args.cvim_checks:
+        app.enabled_cvim_checks = {c.strip() for c in args.cvim_checks.split(",") if c.strip()}
+    if args.host_checks:
+        app.enabled_host_checks = {c.strip() for c in args.host_checks.split(",") if c.strip()}
 
     # ── --dry-run ──────────────────────────────────────────────────────────────
     if args.dry_run:
@@ -396,7 +404,7 @@ def main() -> int:
             "  [%s] %s — %s%s",
             "OK" if r.status == "OK" else "FAIL",
             r.cluster_name,
-            r.cli_version or "SSH OK" if r.status == "OK" else r.error,
+            (r.cli_version or "SSH OK") if r.status == "OK" else r.error,
             f" ({r.duration_ms}ms)" if r.duration_ms else "",
         ),
     )
@@ -430,6 +438,7 @@ def main() -> int:
 
     # SIGINT / SIGTERM → cancel gracefully
     loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
     _cancel_event = asyncio.Event()
 
     def _handle_signal(signum, frame):
@@ -441,13 +450,11 @@ def main() -> int:
 
     async def _run_all():
         nonlocal results, cancelled
-        sem   = asyncio.Semaphore(app.parallel_limit)
-        tasks = []
+        from core.result import ClusterResult
+        sem = asyncio.Semaphore(app.parallel_limit)
 
         async def _one(cluster):
             async with sem:
-                if _cancel_event.is_set():
-                    return None
                 runner = CheckRunner(
                     cluster_config = cluster.to_dict(),
                     app_settings   = app.to_dict(),
@@ -455,28 +462,44 @@ def main() -> int:
                 try:
                     return await runner.run()
                 except asyncio.CancelledError:
+                    log.warning("Cluster run cancelled: %s", cluster.name)
                     return None
                 except Exception as e:
                     log.error("Unhandled error on %s: %s", cluster.name, e, exc_info=True)
-                    from core.result import ClusterResult
                     cr = ClusterResult(cluster_name=cluster.name, cluster_type=cluster.type)
-                    cr.error_msg   = str(e)
                     cr.login_success = False
                     cr.login_error   = str(e)
                     cr.end_time      = datetime.now()
                     return cr
 
-        gathered = await asyncio.gather(*[_one(c) for c in clusters])
+        tasks = [asyncio.create_task(_one(c)) for c in clusters]
+
+        async def _watcher():
+            """Cancel all cluster tasks as soon as a signal fires."""
+            await _cancel_event.wait()
+            log.warning("Cancellation event — stopping %d running task(s)…", len(tasks))
+            for t in tasks:
+                t.cancel()
+
+        watcher = asyncio.create_task(_watcher())
+        gathered = await asyncio.gather(*tasks, return_exceptions=True)
+        watcher.cancel()
+        try:
+            await watcher
+        except asyncio.CancelledError:
+            pass
 
         if _cancel_event.is_set():
             cancelled = True
 
-        results = [r for r in gathered if r is not None]
+        results = [r for r in gathered
+                   if isinstance(r, ClusterResult) and r is not None]
 
     try:
         loop.run_until_complete(_run_all())
     finally:
         loop.close()
+        asyncio.set_event_loop(None)
         signal.signal(signal.SIGINT,  signal.SIG_DFL)
         signal.signal(signal.SIGTERM, signal.SIG_DFL)
 
@@ -486,17 +509,20 @@ def main() -> int:
     # ── persist to DB ─────────────────────────────────────────────────────────
     if results:
         summaries = [r.to_dict() for r in results]
-        write_run(
-            db_path     = app.db_path,
-            run_id      = run_id,
-            user        = os.environ.get("USER", os.environ.get("LOGNAME", "unknown")),
-            started_at  = started_at,
-            finished_at = finished_at,
-            summaries   = summaries,
-            status      = status,
-            max_runs    = app.history_max_runs,
-        )
-        log.info("Results saved to DB (%s)", app.db_path)
+        try:
+            write_run(
+                db_path     = app.db_path,
+                run_id      = run_id,
+                user        = os.environ.get("USER", os.environ.get("LOGNAME", "unknown")),
+                started_at  = started_at,
+                finished_at = finished_at,
+                summaries   = summaries,
+                status      = status,
+                max_runs    = app.history_max_runs,
+            )
+            log.info("Results saved to DB (%s)", app.db_path)
+        except Exception as e:
+            log.error("Failed to save results to DB: %s", e)
 
     # ── generate HTML reports ──────────────────────────────────────────────────
     if results:
@@ -508,18 +534,15 @@ def main() -> int:
 
         reporter = HTMLReporter(results, out_dir, diff_data=diff_data)
 
-        # Timestamp-stamped filenames
-        ts   = started_at.strftime("%Y%m%d_%H%M%S")
+        # Timestamp-stamped filenames — generate to default name then rename
+        ts         = started_at.strftime("%Y%m%d_%H%M%S")
         full_path  = out_dir / f"healthcheck_report_{ts}.html"
         email_path = out_dir / f"healthcheck_email_{ts}.html"
 
-        full_report = reporter.generate()
-        full_report.rename(full_path)
+        reporter.generate().rename(full_path)
+        reporter.generate_email().rename(email_path)
 
-        email_report = reporter.generate_email()
-        email_report.rename(email_path)
-
-        _rotate_logs(out_dir, max_files=app.max_log_files)
+        _rotate_reports(out_dir, max_files=app.max_report_files)
 
         log.info("Full report:  %s", full_path)
         log.info("Email report: %s", email_path)

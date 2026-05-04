@@ -94,11 +94,11 @@ class SectionResult:
 
     @property
     def fail_count(self) -> int:
-        return sum(1 for i in self.checks if i.status == Status.FAIL)
+        return sum(1 for i in self.checks if i.status in (Status.FAIL, Status.ERROR))
 
     @property
     def warn_count(self) -> int:
-        return sum(1 for i in self.checks if i.status in (Status.WARN, Status.ERROR))
+        return sum(1 for i in self.checks if i.status == Status.WARN)
 
     @property
     def status(self) -> Status:

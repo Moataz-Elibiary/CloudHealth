@@ -18,6 +18,19 @@ def _expand(path: Optional[str]) -> Optional[str]:
     return str(Path(path).expanduser()) if path else None
 
 
+def _parse_checks(value) -> Optional[Set[str]]:
+    """Parse an enabled-checks value from YAML (list or comma-separated string)."""
+    if value is None:
+        return None
+    if isinstance(value, str):
+        items = [i.strip() for i in value.split(",") if i.strip()]
+    elif isinstance(value, list):
+        items = [str(i).strip() for i in value if str(i).strip()]
+    else:
+        return None
+    return set(items) if items else None
+
+
 @dataclass
 class NodeConfig:
     ip:       str
@@ -107,6 +120,7 @@ class AppSettings:
     db_path:               str   = "~/cloud_health/db/history.db"
     inventory_file:        str   = "~/cloud_health/config/inventory.yaml"
     max_log_files:         int   = 5
+    max_report_files:      int   = 10
     history_max_runs:      int   = 200
     disk_threshold:        int   = 85
     mem_used_pct_warn:     int   = 80
@@ -119,12 +133,15 @@ class AppSettings:
     restart_fail_threshold:int   = 20
     pod_age_min_warn:      int   = 5
     pod_age_min_fail:      int   = 2
-    enabled_checks:        Optional[Set[str]] = None
+    # Per-type check filters — None means "run all"
+    enabled_ocp_checks:    Optional[Set[str]] = None
+    enabled_cvim_checks:   Optional[Set[str]] = None
+    enabled_host_checks:   Optional[Set[str]] = None
+    verbose:               bool  = False
 
     @classmethod
     def from_dict(cls, data: dict) -> "AppSettings":
         thr = data.get("thresholds", {})
-        ec  = data.get("enabled_checks")
         return cls(
             parallel_limit        = data.get("parallel_limit",        5),
             max_parallel_nodes    = data.get("max_parallel_nodes",    10),
@@ -135,6 +152,7 @@ class AppSettings:
             db_path               = data.get("db_path",               "~/cloud_health/db/history.db"),
             inventory_file        = data.get("inventory_file",        "~/cloud_health/config/inventory.yaml"),
             max_log_files         = data.get("max_log_files",         5),
+            max_report_files      = data.get("max_report_files",      10),
             history_max_runs      = data.get("history_max_runs",      200),
             disk_threshold        = thr.get("disk_percent",           thr.get("disk_threshold",      85)),
             mem_used_pct_warn     = thr.get("mem_warn",               thr.get("mem_used_pct_warn",   80)),
@@ -147,7 +165,10 @@ class AppSettings:
             restart_fail_threshold= data.get("restart_fail_threshold", 20),
             pod_age_min_warn      = data.get("pod_age_min_warn",       5),
             pod_age_min_fail      = data.get("pod_age_min_fail",       2),
-            enabled_checks        = set(str(i).strip() for i in ec if str(i).strip()) if ec else None,
+            enabled_ocp_checks    = _parse_checks(data.get("enabled_ocp_checks")),
+            enabled_cvim_checks   = _parse_checks(data.get("enabled_cvim_checks")),
+            enabled_host_checks   = _parse_checks(data.get("enabled_host_checks")),
+            verbose               = data.get("verbose", False),
         )
 
     def to_dict(self) -> dict:
@@ -161,6 +182,7 @@ class AppSettings:
             "db_path":               self.db_path,
             "inventory_file":        self.inventory_file,
             "max_log_files":         self.max_log_files,
+            "max_report_files":      self.max_report_files,
             "history_max_runs":      self.history_max_runs,
             "disk_threshold":        self.disk_threshold,
             "mem_used_pct_warn":     self.mem_used_pct_warn,
@@ -173,7 +195,10 @@ class AppSettings:
             "restart_fail_threshold":self.restart_fail_threshold,
             "pod_age_min_warn":      self.pod_age_min_warn,
             "pod_age_min_fail":      self.pod_age_min_fail,
-            "enabled_checks":        sorted(self.enabled_checks) if self.enabled_checks else None,
+            "enabled_ocp_checks":    sorted(self.enabled_ocp_checks)  if self.enabled_ocp_checks  else None,
+            "enabled_cvim_checks":   sorted(self.enabled_cvim_checks) if self.enabled_cvim_checks else None,
+            "enabled_host_checks":   sorted(self.enabled_host_checks) if self.enabled_host_checks else None,
+            "verbose":               self.verbose,
         }
 
 

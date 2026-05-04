@@ -113,6 +113,7 @@ class CheckRunner:
                     nodes             = self.cluster.nodes,
                     app               = self.app,
                     cluster_name      = self.cluster.name,
+                    cluster           = self.cluster,
                     bastion_transport = self.bastion.get_transport(),
                     logger            = self.log,
                     console           = self.con,
@@ -158,9 +159,10 @@ class CheckRunner:
         raise ValueError(f"Unsupported cluster type: {self.cluster.type!r}")
 
     def _should_run_host_checks(self) -> bool:
-        if self.enabled_checks is None:
+        ec = self.app.enabled_host_checks
+        if ec is None:
             return True
-        return any(c in HOST_CHECK_IDS for c in self.enabled_checks)
+        return any(c in HOST_CHECK_IDS for c in ec)
 
     def _serialize_section(self, sec: SectionResult) -> dict:
         return {

@@ -131,7 +131,11 @@ def _check_one_cluster(cluster) -> PreflightResult:
 
         # CLI availability check
         ctype = r.cluster_type.lower()
-        probe = _CLI_PROBE.get(ctype, "echo 'unknown cluster type'")
+        if ctype not in _CLI_PROBE:
+            r.error  = f"Unknown cluster type '{ctype}' — no preflight probe defined"
+            r.status = "FAIL"
+            return r
+        probe = _CLI_PROBE[ctype]
         try:
             _, stdout, _ = client.exec_command(probe, timeout=CMD_TIMEOUT_S)
             out = stdout.read().decode("utf-8", errors="replace").strip()

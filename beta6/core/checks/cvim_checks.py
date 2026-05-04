@@ -36,7 +36,7 @@ class CVIMHealthChecker:
         return [l for l in out.splitlines() if l.strip()]
 
     def _should(self, cat: str) -> bool:
-        return self.app.enabled_checks is None or cat in self.app.enabled_checks
+        return self.app.enabled_cvim_checks is None or cat in self.app.enabled_cvim_checks
 
     def _thr(self, attr: str):
         v = getattr(self.c, attr, None)
