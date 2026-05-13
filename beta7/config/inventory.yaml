@@ -1,0 +1,53 @@
+# ============================================================================
+# CloudHealth Beta 6 — inventory.yaml
+# Defines all clusters and their nodes for health checks.
+# SSH key-based auth is recommended for passwordless access from the server.
+# ============================================================================
+
+clusters:
+
+  # ── OCP cluster example ────────────────────────────────────────────────────
+  - name:         cluster-ocp-prod-1
+    type:         ocp
+    installer_ip: 10.0.1.10
+    ssh_user:     cloud-admin
+    ssh_key:      ~/.ssh/id_rsa          # path on the central server
+    # ssh_pass:   secret                 # use key or password, not both
+    enabled:      true
+    # Per-cluster threshold overrides (omit to use global config.yaml values)
+    # disk_threshold:    90
+    # mem_used_pct_warn: 85
+    # mem_used_pct_fail: 98
+    nodes:
+      - ip:       10.0.1.20
+        ssh_user: core
+        ssh_key:  ~/.ssh/id_rsa
+      - ip:       10.0.1.21
+        ssh_user: core
+        ssh_key:  ~/.ssh/id_rsa
+      - ip:       10.0.1.22
+        ssh_user: core
+        ssh_key:  ~/.ssh/id_rsa
+
+  # ── CVIM cluster example ───────────────────────────────────────────────────
+  - name:         cluster-cvim-prod-1
+    type:         cvim
+    installer_ip: 10.0.2.10
+    ssh_user:     admin
+    ssh_key:      ~/.ssh/id_rsa
+    enabled:      true
+    nodes:
+      - ip:       10.0.2.20
+        ssh_user: root
+        ssh_key:  ~/.ssh/id_rsa
+      - ip:       10.0.2.21
+        ssh_user: root
+        ssh_key:  ~/.ssh/id_rsa
+
+  # ── Disabled cluster example ───────────────────────────────────────────────
+  - name:         cluster-ocp-staging-1
+    type:         ocp
+    installer_ip: 10.0.3.10
+    ssh_user:     cloud-admin
+    ssh_key:      ~/.ssh/id_rsa
+    enabled:      false                  # skip this cluster
